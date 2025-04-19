@@ -42,7 +42,7 @@ async function bootstrap() {
     // Setup application services
     const authService = new AuthService(userRepository, jwtService);
     const chatService = new ChatService(chatRepository, messageRepository, eventEmitter);
-    const aiService = new AIService(chatRepository, messageRepository, eventEmitter);
+    const aiService = new AIService(chatRepository, messageRepository, eventEmitter, env);
 
     // Setup controllers
     const authController = new AuthController(authService);

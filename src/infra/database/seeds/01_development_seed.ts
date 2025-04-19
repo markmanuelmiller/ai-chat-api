@@ -1,6 +1,6 @@
 import { Knex } from 'knex';
 import { v4 as uuidv4 } from 'uuid';
-import { hashPassword } from '@/utils/password';
+import { hashPassword } from '../../../utils/password';
 
 export async function seed(knex: Knex): Promise<void> {
   // Only run seeds in development environment
@@ -22,6 +22,14 @@ export async function seed(knex: Knex): Promise<void> {
     email: 'test@example.com',
     password: hashedPassword,
     name: 'Test User',
+    created_at: new Date(),
+    updated_at: new Date(),
+  });
+  await knex('users').insert({
+    id: "123e4567-e89b-12d3-a456-426614174000",
+    email: 'mark@miller.com',
+    password: hashedPassword,
+    name: 'Mark Miller',
     created_at: new Date(),
     updated_at: new Date(),
   });

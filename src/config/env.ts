@@ -12,4 +12,7 @@ export const env = {
   DB_NAME: process.env.DB_NAME || 'ai_chat',
   JWT_SECRET: process.env.JWT_SECRET || 'your_jwt_secret',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '1d',
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+  LANGGRAPH_API_KEY: process.env.LANGGRAPH_API_KEY || '',
 };
