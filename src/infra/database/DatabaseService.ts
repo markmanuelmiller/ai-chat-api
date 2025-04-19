@@ -1,5 +1,7 @@
 import { Pool, PoolClient, QueryResult } from 'pg';
 import { logger } from '@/utils/logger';
+import knex, { Knex } from 'knex';
+import knexConfig from './knexfile';
 
 // Extend PoolClient type to include our custom property
 interface ExtendedPoolClient extends PoolClient {
@@ -9,6 +11,7 @@ interface ExtendedPoolClient extends PoolClient {
 export class DatabaseService {
   private static instance: DatabaseService;
   private pool: Pool;
+  private knexInstance: Knex;
 
   private constructor() {
     this.pool = new Pool({
@@ -26,6 +29,9 @@ export class DatabaseService {
       logger.error('Unexpected error on idle client', err);
       process.exit(-1);
     });
+
+    // Initialize Knex instance
+    this.knexInstance = knex(knexConfig);
   }
 
   public static getInstance(): DatabaseService {
@@ -33,6 +39,10 @@ export class DatabaseService {
       DatabaseService.instance = new DatabaseService();
     }
     return DatabaseService.instance;
+  }
+
+  public getKnex(): Knex {
+    return this.knexInstance;
   }
 
   public async query(text: string, params?: any[]): Promise<QueryResult> {
@@ -71,57 +81,37 @@ export class DatabaseService {
   }
 
   public async disconnect(): Promise<void> {
+    await this.knexInstance.destroy();
     await this.pool.end();
   }
 
-  public async initTables(): Promise<void> {
-    const client = await this.getClient();
+  public async runMigrations(): Promise<void> {
     try {
-      await client.query('BEGIN');
+      await this.knexInstance.migrate.latest();
+      logger.info('Database migrations completed successfully');
+    } catch (error) {
+      logger.error('Error running database migrations', error);
+      throw error;
+    }
+  }
 
-      // Users table
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id UUID PRIMARY KEY,
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255) NOT NULL,
-          name VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-
-      // Chats table
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS chats (
-          id UUID PRIMARY KEY,
-          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          title VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-
-      // Messages table
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS messages (
-          id UUID PRIMARY KEY,
-          chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-          role VARCHAR(50) NOT NULL,
-          content TEXT NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-
-      await client.query('COMMIT');
-      logger.info('Database tables initialized successfully');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      logger.error('Error initializing database tables', e);
-      throw e;
-    } finally {
-      client.release();
+  public async rollbackMigrations(): Promise<void> {
+    try {
+      await this.knexInstance.migrate.rollback();
+      logger.info('Database migrations rolled back successfully');
+    } catch (error) {
+      logger.error('Error rolling back database migrations', error);
+      throw error;
+    }
+  }
+  
+  public async runSeeds(): Promise<void> {
+    try {
+      await this.knexInstance.seed.run();
+      logger.info('Database seed data applied successfully');
+    } catch (error) {
+      logger.error('Error seeding database', error);
+      throw error;
     }
   }
 }

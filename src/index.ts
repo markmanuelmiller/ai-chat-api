@@ -27,8 +27,8 @@ async function bootstrap() {
   try {
     // Initialize database
     const dbService = DatabaseService.getInstance();
-    await dbService.initTables();
-    logger.info('Database initialized');
+    await dbService.runMigrations();
+    logger.info('Database migrations applied successfully');
 
     // Setup repositories
     const userRepository = new PgUserRepository(dbService);
