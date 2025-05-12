@@ -1,19 +1,19 @@
 import { Logger } from '@nestjs/common';
-import { LogAnalysisGraph } from './graph/log-analysis-graph';
-import { GraphState } from './graph/types/state';
+import { VideoPipelineAssistantGraph } from './graphs/video-pipeline-graph';
+import { GraphState } from './graphs/types/state';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { StateAnnotation } from './graph/log-analysis-graph';
+import { StateAnnotation } from './graphs/video-pipeline-graph';
 /**
  * Service for handling log analysis using LangGraph
  */
 
 
-export class LogAnalysisService {
-  private readonly logger = new Logger(LogAnalysisService.name);
-  private graph: LogAnalysisGraph;
+export class VideoPipelineService {
+  private readonly logger = new Logger(VideoPipelineService.name);
+  private graph: VideoPipelineAssistantGraph;
   
   constructor(llm: BaseChatModel) {
-    this.graph = new LogAnalysisGraph(llm);
+    this.graph = new VideoPipelineAssistantGraph(llm);
   }
   
   /**
@@ -31,23 +31,15 @@ export class LogAnalysisService {
       // };
 
       const initialState: Partial<typeof StateAnnotation.State> = {
-        topic: userMessage,
+        message: userMessage,
       };
 
       console.log('initialState', initialState);
       
       // Execute the graph
       const result = await this.graph.invoke(initialState);
-
-      console.log('result', result);
-      
-      // Get the assistant's response from the final state
-      // const assistantMessages = result.messages.filter(m => m.role === "assistant");
-      // return assistantMessages.length > 0 
-      //   ? assistantMessages[assistantMessages.length - 1].content 
-      //   : "I couldn't process your request.";
-
-      return result.finalJoke;
+      console.log('result from graph', result);
+      return result.message;
     } catch (error) {
       this.logger.error('Error processing message:', error);
       return "Sorry, I encountered an error processing your request.";
@@ -64,7 +56,7 @@ export class LogAnalysisService {
     try {
       // Initial state for the graph
       const initialState: Partial<typeof StateAnnotation.State> = {
-        topic: userMessage,
+        message: userMessage,
       };
       
       // Stream the graph execution
@@ -73,8 +65,8 @@ export class LogAnalysisService {
       
       for await (const chunk of stream) {
         // Only yield assistant messages to the client
-        if (chunk.finalJoke) {
-          const latestMessage = chunk.finalJoke;
+        if (chunk.message) {
+          const latestMessage = chunk.message;
           if (latestMessage.length > fullResponse.length) {
             // Only stream the new part
             const newContent = latestMessage.substring(fullResponse.length);

@@ -2,6 +2,14 @@
 
 A TypeScript Node.js server for AI chat applications with WebSockets and LangChain integration.
 
+## Start
+
+```bash
+npm run docker:up
+
+npm run docker:down[v]
+```
+
 ## Features
 
 - TypeScript Node.js server with hot reloading for development

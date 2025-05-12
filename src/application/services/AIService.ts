@@ -6,9 +6,7 @@ import { MessageCreatedEvent } from '@/domain/events/impl/MessageCreatedEvent';
 import { logger } from '@/utils/logger';
 import { RunnableSequence, RunnableLambda } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { ChatOpenAI } from '@langchain/openai';
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { LogAnalysisService } from '../ai/log-analysis-service';
+import { VideoPipelineService } from '../ai/video-pipeline-service';
 import { ChatAnthropic } from '@langchain/anthropic';
 
 // For a real implementation, you'd need to import StateGraph from @langchain/langgraph
@@ -17,7 +15,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 
 export class AIService {
   private llm: ChatAnthropic;
-  private logAnalysisService: LogAnalysisService;
+  private videoPipelineService: VideoPipelineService;
 
   constructor(
     private readonly chatRepository: ChatRepository,
@@ -37,7 +35,7 @@ export class AIService {
     });
     
     // Initialize the LogAnalysisService with the same API key
-    this.logAnalysisService = new LogAnalysisService(this.llm);
+    this.videoPipelineService = new VideoPipelineService(this.llm);
 
     console.log('LANGCHAIN_TRACING_V2:', process.env.LANGCHAIN_TRACING_V2);
     console.log('LANGCHAIN_ENDPOINT:', process.env.LANGCHAIN_ENDPOINT);
@@ -99,7 +97,7 @@ export class AIService {
     );
 
     // Use the LangGraph-based log analysis service
-    const assistantResponse = await this.logAnalysisService.processMessage(chatId, userMessage);
+    const assistantResponse = await this.videoPipelineService.processMessage(chatId, userMessage);
 
     // Save the assistant message
     const assistantMessage = Message.create({
@@ -140,12 +138,12 @@ export class AIService {
     // Store references to instance properties needed in the generator
     const messageRepository = this.messageRepository;
     const eventEmitter = this.eventEmitter;
-    const logAnalysisService = this.logAnalysisService;
+    const videoPipelineService = this.videoPipelineService;
 
     async function* streamResponse() {
       try {
         // Stream from the LangGraph-based log analysis service
-        const stream = logAnalysisService.streamResponse(chatId, userMessage);
+        const stream = videoPipelineService.streamResponse(chatId, userMessage);
         let fullResponse = '';
         
         for await (const chunk of stream) {
