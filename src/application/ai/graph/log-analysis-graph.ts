@@ -15,8 +15,17 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 // import { createProcessNextStepChoiceNode } from './nodes/process-next-step-choice';
 // import { createHandleToolErrorNode } from './nodes/handle-tool-error';
 
+
+// Graph state
+export const StateAnnotation = Annotation.Root({
+  topic: Annotation<string>,
+  joke: Annotation<string>,
+  improvedJoke: Annotation<string>,
+  finalJoke: Annotation<string>,
+});
+
 export class LogAnalysisGraph {
-  private graph: StateGraph<GraphState>;
+  private graph: any;
   private llm: BaseChatModel;
   
   constructor(llm: BaseChatModel) {
@@ -26,15 +35,9 @@ export class LogAnalysisGraph {
     this.graph = this.buildGraph();
   }
   
-  private buildGraph(): StateGraph<GraphState> {
+  private buildGraph(): any {
 
-    // Graph state
-    const StateAnnotation = Annotation.Root({
-      topic: Annotation<string>,
-      joke: Annotation<string>,
-      improvedJoke: Annotation<string>,
-      finalJoke: Annotation<string>,
-    });
+    
 
     // Define node functions
 
@@ -92,8 +95,8 @@ export class LogAnalysisGraph {
    * @param initialState Initial state for the graph
    * @returns The final state after graph execution
    */
-  async invoke(initialState: Partial<GraphState>): Promise<GraphState> {
-    return await this.graph.invoke(initialState as GraphState);
+  async invoke(initialState: Partial<typeof StateAnnotation.State>): Promise<typeof StateAnnotation.State> {
+    return await this.graph.invoke(initialState as typeof StateAnnotation.State);
   }
   
   /**
@@ -101,7 +104,7 @@ export class LogAnalysisGraph {
    * @param initialState Initial state for the graph
    * @returns A stream of state updates
    */
-  async stream(initialState: Partial<GraphState>): Promise<AsyncIterable<GraphState>> {
-    return await this.graph.stream(initialState as GraphState);
+  async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
+    return await this.graph.stream(initialState as typeof StateAnnotation.State);
   }
 } 

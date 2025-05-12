@@ -38,6 +38,11 @@ export class AIService {
     
     // Initialize the LogAnalysisService with the same API key
     this.logAnalysisService = new LogAnalysisService(this.llm);
+
+    console.log('LANGCHAIN_TRACING_V2:', process.env.LANGCHAIN_TRACING_V2);
+    console.log('LANGCHAIN_ENDPOINT:', process.env.LANGCHAIN_ENDPOINT);
+    console.log('LANGCHAIN_API_KEY exists:', !!process.env.LANGCHAIN_API_KEY); // Log existence, not the key itself for security
+    console.log('LANGCHAIN_PROJECT:', process.env.LANGCHAIN_PROJECT);
   }
 
   /**
@@ -71,49 +76,43 @@ export class AIService {
    */
 
   async generateResponse(chatId: string, userMessage: string): Promise<Message> {
-    
 
+    const chat = await this.chatRepository.findById(chatId);
+    if (!chat) {
+      throw new Error('Chat not found');
+    }
 
+    // Save the user message
+    const userMessageEntity = Message.create({
+      chatId,
+      role: MessageRole.USER,
+      content: userMessage,
+    });
+    await this.messageRepository.save(userMessageEntity);
+    await this.eventEmitter.emit(
+      new MessageCreatedEvent(
+        userMessageEntity.id,
+        chatId,
+        MessageRole.USER,
+        userMessageEntity.content,
+      ),
+    );
 
+    // Use the LangGraph-based log analysis service
+    const assistantResponse = await this.logAnalysisService.processMessage(chatId, userMessage);
 
+    // Save the assistant message
+    const assistantMessage = Message.create({
+      chatId,
+      role: MessageRole.ASSISTANT,
+      content: assistantResponse,
+    });
+    const savedMessage = await this.messageRepository.save(assistantMessage);
+    await this.eventEmitter.emit(
+      new MessageCreatedEvent(savedMessage.id, chatId, MessageRole.ASSISTANT, savedMessage.content),
+    );
 
-
-    // const chat = await this.chatRepository.findById(chatId);
-    // if (!chat) {
-    //   throw new Error('Chat not found');
-    // }
-
-    // // Save the user message
-    // const userMessageEntity = Message.create({
-    //   chatId,
-    //   role: MessageRole.USER,
-    //   content: userMessage,
-    // });
-    // await this.messageRepository.save(userMessageEntity);
-    // await this.eventEmitter.emit(
-    //   new MessageCreatedEvent(
-    //     userMessageEntity.id,
-    //     chatId,
-    //     MessageRole.USER,
-    //     userMessageEntity.content,
-    //   ),
-    // );
-
-    // // Use the LangGraph-based log analysis service
-    // const assistantResponse = await this.logAnalysisService.processMessage(chatId, userMessage);
-
-    // // Save the assistant message
-    // const assistantMessage = Message.create({
-    //   chatId,
-    //   role: MessageRole.ASSISTANT,
-    //   content: assistantResponse,
-    // });
-    // const savedMessage = await this.messageRepository.save(assistantMessage);
-    // await this.eventEmitter.emit(
-    //   new MessageCreatedEvent(savedMessage.id, chatId, MessageRole.ASSISTANT, savedMessage.content),
-    // );
-
-    // return savedMessage;
+    return savedMessage;
   }
 
   async streamResponse(chatId: string, userMessage: string): Promise<AsyncGenerator<string, void, unknown>> {
@@ -177,7 +176,8 @@ export class AIService {
 
     return streamResponse();
   }
-
+  
+  
   /**
    * This method provides a simpler fallback implementation using just LangChain without the graph
    * It's useful in case the graph implementation has issues
