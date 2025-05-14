@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { VideoPipelineAssistantGraph } from './graphs/video-pipeline-graph';
-import { GraphState } from './graphs/types/state';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { StateAnnotation } from './graphs/video-pipeline-graph';
 /**

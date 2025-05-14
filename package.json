@@ -11,7 +11,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",
     "test:unit": "jest --testMatch=\"**/tests/unit/**/*.test.ts\"",
-    "test:integration": "jest --testMatch=\"**/tests/integration/**/*.test.ts\"",
+    "test:integration": "dotenv jest src/tests/integration/video-pipeline.test.ts",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "docker:up": "docker-compose up -d",
@@ -51,6 +51,7 @@
     "ws": "^8.15.1"
   },
   "devDependencies": {
+    "@types/axios": "^0.9.36",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.11",
@@ -62,6 +63,8 @@
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^6.18.1",
     "@typescript-eslint/parser": "^6.18.1",
+    "axios": "^1.9.0",
+    "dotenv-cli": "^8.0.0",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.3",

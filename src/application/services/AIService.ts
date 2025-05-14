@@ -23,11 +23,6 @@ export class AIService {
     private readonly eventEmitter: DomainEventEmitter,
     private readonly config?: any
   ) {
-    // this.llm = new ChatOpenAI({
-    //   modelName: "gpt-3.5-turbo",
-    //   temperature: 0,
-    //   ...(config.OPENAI_API_KEY ? { apiKey: config.OPENAI_API_KEY } : {})
-    // });
     this.llm = new ChatAnthropic({
       modelName: "claude-3-7-sonnet-latest",
       temperature: 0,
@@ -42,36 +37,6 @@ export class AIService {
     console.log('LANGCHAIN_API_KEY exists:', !!process.env.LANGCHAIN_API_KEY); // Log existence, not the key itself for security
     console.log('LANGCHAIN_PROJECT:', process.env.LANGCHAIN_PROJECT);
   }
-
-  /**
-   * This is a placeholder for the full LangGraph implementation.
-   * In a real implementation, you would create a graph with the following nodes and edges:
-   * 
-   * Nodes:
-   * - detect_intent: Analyzes user message to determine intent
-   * - request_filters: Extracts filter criteria from user message
-   * - extract_or_request_stream_name: Extracts stream name from user message
-   * - handle_other_intent: Handles intents not related to logs or filters
-   * - confirm_tool_args: Confirms arguments for log tool execution
-   * - execute_log_tool: Executes the log viewing/filtering tool
-   * - analyze_logs: Analyzes log output
-   * - propose_next_step: Suggests next steps based on log analysis
-   * - process_next_step_choice: Processes user's choice for next step
-   * - handle_tool_error: Handles errors in tool execution
-   * 
-   * Edges:
-   * (a) START --> detect_intent
-   * (b) detect_intent -- Conditional --> request_filters OR extract_or_request_stream_name OR handle_other_intent
-   * (c) extract_or_request_stream_name --> request_filters
-   * (d) request_filters --> confirm_tool_args
-   * (e) confirm_tool_args -- Conditional --> execute_log_tool OR END
-   * (f) execute_log_tool -- Conditional --> analyze_logs OR handle_tool_error
-   * (g) analyze_logs --> propose_next_step
-   * (h) propose_next_step --> process_next_step_choice
-   * (i) process_next_step_choice -- Conditional --> request_filters OR END
-   * (j) handle_other_intent --> END
-   * (k) handle_tool_error --> END
-   */
 
   async generateResponse(chatId: string, userMessage: string): Promise<Message> {
 
