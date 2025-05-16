@@ -1,0 +1,20 @@
+{
+  "name": "ai-chat-api",
+  "version": "1.0.0",
+  "description": "AI Chat API with LangGraph integration for video pipeline troubleshooting",
+  "graphs": {
+    "videoPipeline": "src/application/ai/graphs/video-pipeline-graph.ts:VideoPipelineAssistantGraph"
+  },
+  "settings": {
+    "port": 3000,
+    "host": "localhost",
+    "debug": true,
+    "logLevel": "info"
+  },
+  "studio": {
+    "enabled": true,
+    "port": 3002,
+    "host": "localhost",
+    "path": "/studio"
+  }
+}

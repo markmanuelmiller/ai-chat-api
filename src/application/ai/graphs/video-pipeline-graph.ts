@@ -15,6 +15,11 @@ interface JobStatusResponse {
 interface SystemResourcesResponse {
   cpu: number;
   memory: number;
+  disk: number;
+  network: {
+    in: number;
+    out: number;
+  };
 }
 
 // Graph state
@@ -50,16 +55,6 @@ export const StateAnnotation = Annotation.Root({
   })
 });
 
-const routes = {
-  "troubleshoot_stream": {
-    "streamNameNode": {
-      "troubleshootStreamNode": {
-        "__end__": {}
-      }
-    }
-  }
-}
-
 export class VideoPipelineAssistantGraph {
   private graph: any;
   private llm: BaseChatModel;
@@ -79,8 +74,7 @@ export class VideoPipelineAssistantGraph {
     const determineIntentNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
         `Determine the intent of the following message: ${state.message}. 
-        Respond only with one of the following: "troubleshoot_stream", "other".`);
-      console.log("msg", msg);
+        Respond only with one of the following: "debug_stream", "other".`);
 
       state.intent = msg.content.toString();
       return state;
@@ -95,19 +89,16 @@ export class VideoPipelineAssistantGraph {
       };
     }
 
-    const router = (state: typeof StateAnnotation.State) => 
-      state.intent === "troubleshoot_stream" ? "Pass" : "Fail";
+    const debugStreamRouter = (state: typeof StateAnnotation.State) => 
+      state.intent === "debug_stream" ? "Pass" : "Fail";
 
     const streamNameNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
         `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
       );
-      // state.streamName = msg.content.toString();
-      // state.jobData.jobId = "123";
       return {
         streamName: msg.content.toString(),
         jobData: {
-          ...state.jobData,
           jobId: "123"
         }
       };
@@ -115,10 +106,8 @@ export class VideoPipelineAssistantGraph {
 
     const checkLauncherStatusNode = async (state: typeof StateAnnotation.State) => {
       const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
-      console.log("LAUNCHER STATUS RESPONSE:", response.data);
       return {
         jobData: {
-          ...state.jobData,
           launcherStatus: response.data.status
         }
       };
@@ -126,10 +115,8 @@ export class VideoPipelineAssistantGraph {
 
     const checkDBStatusNode = async (state: typeof StateAnnotation.State) => {
       const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/db-status`);
-      console.log("DB STATUS RESPONSE:", response.data);
       return {
         jobData: {
-          ...state.jobData,
           dbStatus: response.data.status
         }
       };
@@ -137,10 +124,8 @@ export class VideoPipelineAssistantGraph {
 
     const checkJobOrderNode = async (state: typeof StateAnnotation.State) => {
       const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/order-status`);
-      console.log("JOB ORDER STATUS RESPONSE:", response.data);
       return {
         jobData: {
-          ...state.jobData,
           jobOrderStatus: response.data.status
         }
       };
@@ -148,30 +133,24 @@ export class VideoPipelineAssistantGraph {
 
     const checkSystemResourcesNode = async (state: typeof StateAnnotation.State) => {
       const response = await axios.get<SystemResourcesResponse>(`${this.baseUrl}/api/system/resources`);
-      console.log("SYSTEM RESOURCES RESPONSE:", response.data);
       return {
         jobData: {
-          ...state.jobData,
-          systemResourcesStatus: `memory: ${response.data.memory}, cpu: ${response.data.cpu}`
+          systemResourcesStatus: `memory: ${response.data.memory}%, cpu: ${response.data.cpu}%, disk: ${response.data.disk}%, network in: ${response.data.network.in}%, network out: ${response.data.network.out}%`
         }
       };
     }
 
-    const joinNode = async (state: typeof StateAnnotation.State) => {
-      // Just pass through the state since parallel nodes are already handling their updates
-      return state;
-    }
-
     const debugJobNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
-        `Troubleshoot the stream: ${state.streamName} with the following statuses:
+        `Troubleshoot the stream: ${state.streamName} 
 
-        Launcher Status: ${state.jobData.launcherStatus}
-        DB Status: ${state.jobData.dbStatus}
-        Job Order Status: ${state.jobData.jobOrderStatus}
-        System Resources Status: ${state.jobData.systemResourcesStatus}
+        Stream Job Status:
+        - Launcher Status: ${state.jobData.launcherStatus}
+        - DB Status: ${state.jobData.dbStatus}
+        - Job Order Status: ${state.jobData.jobOrderStatus}
+        - System Resources Status: ${state.jobData.systemResourcesStatus}
 
-        can you figure out what is wrong with the stream?
+        Can you help troubleshoot the stream?
         `
       );
       console.log("FINAL DEBUG STATE:", state);
@@ -189,11 +168,10 @@ export class VideoPipelineAssistantGraph {
       .addNode("checkDBStatusNode", checkDBStatusNode)
       .addNode("checkJobOrderNode", checkJobOrderNode)
       .addNode("checkSystemResourcesNode", checkSystemResourcesNode)
-      .addNode("joinNode", joinNode)
       .addNode("debugJobNode", debugJobNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
-      .addConditionalEdges("determineIntentNode", router, {
+      .addConditionalEdges("determineIntentNode", debugStreamRouter, {
         Pass: "streamNameNode",
         Fail: "__end__"
       })
@@ -202,12 +180,11 @@ export class VideoPipelineAssistantGraph {
       .addEdge("streamNameNode", "checkDBStatusNode")
       .addEdge("streamNameNode", "checkJobOrderNode")
       .addEdge("streamNameNode", "checkSystemResourcesNode")
-      .addEdge("streamDebugDataCollectorNode", "joinNode")
-      .addEdge("checkLauncherStatusNode", "joinNode")
-      .addEdge("checkDBStatusNode", "joinNode")
-      .addEdge("checkJobOrderNode", "joinNode")
-      .addEdge("checkSystemResourcesNode", "joinNode")
-      .addEdge("joinNode", "debugJobNode")
+      .addEdge("streamDebugDataCollectorNode", "debugJobNode")
+      .addEdge("checkLauncherStatusNode", "debugJobNode")
+      .addEdge("checkDBStatusNode", "debugJobNode")
+      .addEdge("checkJobOrderNode", "debugJobNode")
+      .addEdge("checkSystemResourcesNode", "debugJobNode")
       .addEdge("debugJobNode", "__end__")
       .compile();
 
@@ -231,4 +208,8 @@ export class VideoPipelineAssistantGraph {
   async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
     return await this.graph.stream(initialState as typeof StateAnnotation.State);
   }
+}
+
+export async function createGraph(dependencies: { llm: BaseChatModel, baseUrl: string }) {
+  return new VideoPipelineAssistantGraph(dependencies.llm, dependencies.baseUrl);
 } 
