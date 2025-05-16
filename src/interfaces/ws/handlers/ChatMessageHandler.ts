@@ -8,10 +8,10 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
 
   async handle(
     client: AuthenticatedClient,
-    payload: { chatId: string; message: string },
+    payload: { chatId: string; message: string; stream?: boolean },
     manager: WebSocketManager,
   ): Promise<void> {
-    const { chatId, message } = payload;
+    const { chatId, message, stream = true } = payload;
 
     if (!chatId || !message) {
       client.send(JSON.stringify({
@@ -28,23 +28,35 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
         chatId,
       }));
 
-      // Start streaming the response
-      const stream = await this.aiService.streamResponse(chatId, message);
+      if (stream) {
+        // Start streaming the response
+        const responseStream = await this.aiService.streamResponse(chatId, message);
 
-      // Send each chunk as it comes in
-      for await (const chunk of stream) {
+        // Send each chunk as it comes in
+        for await (const chunk of responseStream) {
+          client.send(JSON.stringify({
+            type: 'chat_response_chunk',
+            chatId,
+            chunk,
+          }));
+        }
+
+        // Signal completion of the response stream
         client.send(JSON.stringify({
-          type: 'chat_response_chunk',
+          type: 'chat_response_complete',
           chatId,
-          chunk,
+        }));
+      } else {
+        // Generate the full response without streaming
+        const fullResponse = await this.aiService.generateResponse(chatId, message);
+        
+        // Send the complete response
+        client.send(JSON.stringify({
+          type: 'chat_response_full',
+          chatId,
+          content: fullResponse.content,
         }));
       }
-
-      // Signal completion of the response
-      client.send(JSON.stringify({
-        type: 'chat_response_complete',
-        chatId,
-      }));
     } catch (error) {
       logger.error('Error processing chat message', error);
       client.send(JSON.stringify({

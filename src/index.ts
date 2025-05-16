@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createServer } from 'http';
 import { env } from '@/config/env';
 import { createApp } from '@/app';
@@ -27,8 +28,8 @@ async function bootstrap() {
   try {
     // Initialize database
     const dbService = DatabaseService.getInstance();
-    await dbService.initTables();
-    logger.info('Database initialized');
+    await dbService.runMigrations();
+    logger.info('Database migrations applied successfully');
 
     // Setup repositories
     const userRepository = new PgUserRepository(dbService);
@@ -42,7 +43,7 @@ async function bootstrap() {
     // Setup application services
     const authService = new AuthService(userRepository, jwtService);
     const chatService = new ChatService(chatRepository, messageRepository, eventEmitter);
-    const aiService = new AIService(chatRepository, messageRepository, eventEmitter);
+    const aiService = new AIService(chatRepository, messageRepository, eventEmitter, env);
 
     // Setup controllers
     const authController = new AuthController(authService);

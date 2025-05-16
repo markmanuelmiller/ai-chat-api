@@ -2,6 +2,14 @@
 
 A TypeScript Node.js server for AI chat applications with WebSockets and LangChain integration.
 
+## Start
+
+```bash
+npm run docker:up
+
+npm run docker:down[v]
+```
+
 ## Features
 
 - TypeScript Node.js server with hot reloading for development
@@ -58,6 +66,40 @@ cp .env.example .env
 ```sql
 CREATE DATABASE ai_chat;
 ```
+
+5. Run migrations to set up the database schema:
+
+```bash
+npm run migrate
+```
+
+### Database Migrations
+
+The project uses Knex.js for managing database migrations.
+
+- Run all pending migrations: `npm run migrate`
+- Create a new migration: `npm run migrate:make migration_name`
+- Rollback the last batch of migrations: `npm run migrate:rollback`
+
+Migration files are stored in `src/infra/database/migrations`.
+
+### Database Seeding
+
+The project includes seed data for development purposes.
+
+- Run database seeds: `npm run seed`
+
+Seed files are stored in `src/infra/database/seeds`.
+
+### Database Reset
+
+To reset the database (useful during development):
+
+```bash
+npm run db:reset
+```
+
+This will rollback all migrations, reapply them, and seed the database.
 
 ### Development
 
