@@ -96,6 +96,7 @@ export class VideoPipelineAssistantGraph {
       const msg = await this.llm.invoke(
         `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
       );
+      // this.llm.withStructuredOutput
       return {
         streamName: msg.content.toString(),
         jobData: {
@@ -139,7 +140,7 @@ export class VideoPipelineAssistantGraph {
         }
       };
     }
-
+    
     const debugJobNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
         `Troubleshoot the stream: ${state.streamName} 
