@@ -6,7 +6,7 @@ import ConnectionStatus from './components/ConnectionStatus';
 import { useWebSocket, WebSocketMessage } from './hooks/useWebSocket';
 
 // Default chat ID
-const DEFAULT_CHAT_ID = 'e5c466ff-761c-4e6d-9dff-615a32495d28';
+const DEFAULT_CHAT_ID = '123e4567-e89b-12d3-a456-426614174001';
 
 interface Message {
   id: string;

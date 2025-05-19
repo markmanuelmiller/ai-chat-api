@@ -35,13 +35,13 @@ export async function seed(knex: Knex): Promise<void> {
   });
 
   // Create sample chats
-  const chatId1 = uuidv4();
+  const chatId1 = "123e4567-e89b-12d3-a456-426614174001"; // Hardcoded UUID for consistent testing
   const chatId2 = uuidv4();
   
   await knex('chats').insert([
     {
       id: chatId1,
-      user_id: userId,
+      user_id: "123e4567-e89b-12d3-a456-426614174000", // Use the hardcoded user ID
       title: 'Getting Started Chat',
       created_at: new Date(),
       updated_at: new Date(),
