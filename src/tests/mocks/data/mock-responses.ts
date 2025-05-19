@@ -22,9 +22,9 @@ interface SystemResources {
 }
 
 const levels = {
-  "error": .1,
+  "error": .3,
   "warn": .3,
-  "info": .6,
+  "info": .4,
 };
 
 const getRandomLevel = () => {
