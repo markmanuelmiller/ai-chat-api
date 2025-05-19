@@ -1,22 +1,21 @@
 import { Logger } from '@nestjs/common';
-import { VideoPipelineAssistantGraph } from './graphs/video-pipeline-graph';
+import { DebugStreamGraph } from './graphs/debug-stream-graph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { StateAnnotation } from './graphs/video-pipeline-graph';
-import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
+import { StateAnnotation } from './graphs/debug-stream-graph';
 
 /**
  * Service for handling log analysis using LangGraph
  */
 
-export class VideoPipelineService {
-  private readonly logger = new Logger(VideoPipelineService.name);
-  private graph: VideoPipelineAssistantGraph;
+export class DebugStreamService {
+  private readonly logger = new Logger(DebugStreamService.name);
+  private graph: DebugStreamGraph;
   
   constructor(
     llm: BaseChatModel,
-    private readonly wsManager: WebSocketManager
+    config: any
   ) {
-    this.graph = new VideoPipelineAssistantGraph(llm, 'http://mock-server:3001');
+    this.graph = new DebugStreamGraph(llm, config);
   }
   
   /**

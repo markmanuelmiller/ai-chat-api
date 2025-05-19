@@ -6,23 +6,17 @@ import { MessageCreatedEvent } from '@/domain/events/impl/MessageCreatedEvent';
 import { logger } from '@/utils/logger';
 import { RunnableSequence, RunnableLambda } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { VideoPipelineService } from '../ai/video-pipeline-service';
+import { DebugStreamService } from '../ai/debug-stream-service';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
-
-// For a real implementation, you'd need to import StateGraph from @langchain/langgraph
-// This is commented out to avoid TypeScript errors in this sample implementation
-// import { StateGraph, END } from '@langchain/langgraph';
 
 export class AIService {
   private llm: ChatAnthropic;
-  private videoPipelineService: VideoPipelineService;
+  private debugStreamService: DebugStreamService;
 
   constructor(
     private readonly chatRepository: ChatRepository,
     private readonly messageRepository: MessageRepository,
     private readonly eventEmitter: DomainEventEmitter,
-    private readonly wsManager: WebSocketManager,
     private readonly config?: any
   ) {
     this.llm = new ChatAnthropic({
@@ -32,12 +26,7 @@ export class AIService {
     });
     
     // Initialize the LogAnalysisService with the same API key and WebSocket manager
-    this.videoPipelineService = new VideoPipelineService(this.llm, this.wsManager);
-
-    console.log('LANGCHAIN_TRACING_V2:', process.env.LANGCHAIN_TRACING_V2);
-    console.log('LANGCHAIN_ENDPOINT:', process.env.LANGCHAIN_ENDPOINT);
-    console.log('LANGCHAIN_API_KEY exists:', !!process.env.LANGCHAIN_API_KEY); // Log existence, not the key itself for security
-    console.log('LANGCHAIN_PROJECT:', process.env.LANGCHAIN_PROJECT);
+    this.debugStreamService = new DebugStreamService(this.llm, config);
   }
 
   async generateResponse(chatId: string, userMessage: string): Promise<Message> {
@@ -64,7 +53,7 @@ export class AIService {
     );
 
     // Use the LangGraph-based log analysis service
-    const assistantResponse = await this.videoPipelineService.processMessage(chatId, userMessage);
+    const assistantResponse = await this.debugStreamService.processMessage(chatId, userMessage);
 
     // Save the assistant message
     const assistantMessage = Message.create({
@@ -105,12 +94,12 @@ export class AIService {
     // Store references to instance properties needed in the generator
     const messageRepository = this.messageRepository;
     const eventEmitter = this.eventEmitter;
-    const videoPipelineService = this.videoPipelineService;
+    const debugStreamService = this.debugStreamService;
 
     async function* streamResponse() {
       try {
         // Stream from the LangGraph-based log analysis service
-        const stream = videoPipelineService.streamResponse(chatId, userMessage);
+        const stream = debugStreamService.streamResponse(chatId, userMessage);
         let fullResponse = '';
         
         for await (const chunk of stream) {
@@ -165,19 +154,4 @@ export class AIService {
       ? result.content 
       : JSON.stringify(result.content) || "I couldn't process your request.";
   }
-
-  /**
-   * In a real implementation, the below methods would be defined to handle the LangGraph nodes:
-   * 
-   * private defineDetectIntentNode() {...}
-   * private defineRequestFiltersNode() {...}
-   * private defineExtractOrRequestStreamNameNode() {...}
-   * private defineHandleOtherIntentNode() {...}
-   * private defineConfirmToolArgsNode() {...}
-   * private defineExecuteLogToolNode() {...}
-   * private defineAnalyzeLogsNode() {...}
-   * private defineProposeNextStepNode() {...}
-   * private defineProcessNextStepChoiceNode() {...}
-   * private defineHandleToolErrorNode() {...}
-   */
 }

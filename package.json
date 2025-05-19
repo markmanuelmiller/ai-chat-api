@@ -11,7 +11,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",
     "test:unit": "jest --testMatch=\"**/tests/unit/**/*.test.ts\"",
-    "test:integration": "dotenv jest src/tests/integration/video-pipeline.test.ts",
+    "test:integration": "dotenv jest src/tests/integration/debug-stream.test.ts",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "docker:up": "docker-compose up -d",

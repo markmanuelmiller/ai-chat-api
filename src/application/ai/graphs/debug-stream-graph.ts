@@ -26,7 +26,7 @@ interface SystemResourcesResponse {
 export const DebugParamsAnnotation = Annotation.Root({
   start: Annotation<string>,
   end: Annotation<string>,
-  streamName: Annotation<string>,
+  timezone: Annotation<string>,
   streamType: Annotation<string>,
   streamStatus: Annotation<string>,
   streamError: Annotation<string>,
@@ -39,12 +39,14 @@ export const JobDataAnnotation = Annotation.Root({
   dbStatus: Annotation<string>,
   jobOrderStatus: Annotation<string>,
   systemResourcesStatus: Annotation<string>,
+  report: Annotation<string>
 });
 
 export const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>,
-  message: Annotation<string>,
+  message: Annotation<string>, // user message
   intent: Annotation<string>,
+  chatHistory: Annotation<string[]>,
   streamName: Annotation<string>,
   debugParams: Annotation<typeof DebugParamsAnnotation.State>,
   jobData: Annotation<typeof JobDataAnnotation.State>({
@@ -52,31 +54,48 @@ export const StateAnnotation = Annotation.Root({
       ...prev,
       ...next
     })
-  })
+  }),
+  finalReport: Annotation<string>
 });
 
-export class VideoPipelineAssistantGraph {
+export class DebugStreamGraph {
   private graph: any;
   private llm: BaseChatModel;
   private baseUrl: string;
   
   constructor(
     llm: BaseChatModel, 
-    baseUrl: string = 'http://mock-server:3001'
+    config: any
   ) {
     this.llm = llm;
-    this.baseUrl = baseUrl;
+    this.baseUrl = config.mockServerUrl;
     this.graph = this.buildGraph();
   }
   
   private buildGraph(): any {
     const intakeMessageNode = async (state: typeof StateAnnotation.State) => {
-      return { message: state.message };
+      // Initialize chat history if it doesn't exist
+      if (!state.chatHistory) {
+        state.chatHistory = [];
+      }
+      
+      // Add the new message to chat history
+      state.chatHistory = [...state.chatHistory, state.message];
+      
+      return { 
+        message: state.message,
+        chatHistory: state.chatHistory 
+      };
     };
     
     const determineIntentNode = async (state: typeof StateAnnotation.State) => {
+      // Include chat history in the prompt for better context
+      const chatContext = state.chatHistory.slice(-3).join('\n');
       const msg = await this.llm.invoke(
-        `Determine the intent of the following message: ${state.message}. 
+        `Given the following chat history:
+        ${chatContext}
+        
+        Determine the intent of the most recent message: ${state.message}. 
         Respond only with one of the following: "debug_stream", "other".`);
 
       state.intent = msg.content.toString();
@@ -190,8 +209,13 @@ export class VideoPipelineAssistantGraph {
     }
     
     const debugJobNode = async (state: typeof StateAnnotation.State) => {
+      // Include relevant chat history in the troubleshooting prompt
+      const chatContext = state.chatHistory.slice(-3).join('\n');
       const msg = await this.llm.invoke(
-        `Troubleshoot the stream: ${state.streamName} 
+        `Given the following chat history:
+        ${chatContext}
+        
+        Troubleshoot the stream: ${state.streamName} 
 
         Stream Job Status:
         - Launcher Status: ${state.jobData.launcherStatus}
@@ -205,9 +229,22 @@ export class VideoPipelineAssistantGraph {
       console.log("FINAL DEBUG STATE:", state);
       console.log("FINAL DEBUG RESPONSE:", msg.content);
 
-      return { message: msg.content };
+      // Add the response to chat history
+      state.chatHistory = [...state.chatHistory, msg.content.toString()];
+      return { 
+        message: msg.content,
+        chatHistory: state.chatHistory 
+      };
     }
 
+    const generateFinalReportNode = async (state: typeof StateAnnotation.State) => {
+      const msg = await this.llm.invoke(
+        `Generate a final report for the following stream: ${state.streamName} and the following debug information: ${state.jobData.report}`
+      );
+      return {
+        finalReport: msg.content.toString()
+      };
+    }
     // Build workflow
     const chain = new StateGraph(StateAnnotation)
       .addNode("intakeMessageNode", intakeMessageNode)
@@ -219,6 +256,7 @@ export class VideoPipelineAssistantGraph {
       .addNode("checkJobOrderNode", checkJobOrderNode)
       .addNode("checkSystemResourcesNode", checkSystemResourcesNode)
       .addNode("debugJobNode", debugJobNode)
+      .addNode("generateFinalReportNode", generateFinalReportNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
       .addConditionalEdges("determineIntentNode", debugStreamRouter, {
@@ -235,7 +273,8 @@ export class VideoPipelineAssistantGraph {
       .addEdge("checkDBStatusNode", "debugJobNode")
       .addEdge("checkJobOrderNode", "debugJobNode")
       .addEdge("checkSystemResourcesNode", "debugJobNode")
-      .addEdge("debugJobNode", "__end__")
+      .addEdge("debugJobNode", "generateFinalReportNode")
+      .addEdge("generateFinalReportNode", "__end__")
       .compile();
 
     return chain;
@@ -270,5 +309,5 @@ export async function createGraph(dependencies: {
   llm: BaseChatModel,
   baseUrl: string 
 }) {
-  return new VideoPipelineAssistantGraph(dependencies.llm, dependencies.baseUrl);
+  return new DebugStreamGraph(dependencies.llm, dependencies.baseUrl);
 } 
