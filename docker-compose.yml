@@ -23,6 +23,24 @@ services:
       - ./:/app
       - /app/node_modules
     command: npm run dev
+    networks:
+      - ai-chat-network
+
+  mock-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    command: ./node_modules/.bin/ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/mock-server.ts
+    networks:
+      - ai-chat-network
 
   postgres:
     image: postgres:15-alpine
@@ -34,6 +52,11 @@ services:
       - POSTGRES_DB=ai_chat
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-chat-network
+
+networks:
+  ai-chat-network:
 
 volumes:
   postgres_data:

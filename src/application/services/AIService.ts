@@ -8,6 +8,7 @@ import { RunnableSequence, RunnableLambda } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { VideoPipelineService } from '../ai/video-pipeline-service';
 import { ChatAnthropic } from '@langchain/anthropic';
+import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
 
 // For a real implementation, you'd need to import StateGraph from @langchain/langgraph
 // This is commented out to avoid TypeScript errors in this sample implementation
@@ -21,6 +22,7 @@ export class AIService {
     private readonly chatRepository: ChatRepository,
     private readonly messageRepository: MessageRepository,
     private readonly eventEmitter: DomainEventEmitter,
+    private readonly wsManager: WebSocketManager,
     private readonly config?: any
   ) {
     this.llm = new ChatAnthropic({
@@ -29,8 +31,8 @@ export class AIService {
       ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {})
     });
     
-    // Initialize the LogAnalysisService with the same API key
-    this.videoPipelineService = new VideoPipelineService(this.llm);
+    // Initialize the LogAnalysisService with the same API key and WebSocket manager
+    this.videoPipelineService = new VideoPipelineService(this.llm, this.wsManager);
 
     console.log('LANGCHAIN_TRACING_V2:', process.env.LANGCHAIN_TRACING_V2);
     console.log('LANGCHAIN_ENDPOINT:', process.env.LANGCHAIN_ENDPOINT);

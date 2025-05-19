@@ -60,7 +60,10 @@ export class VideoPipelineAssistantGraph {
   private llm: BaseChatModel;
   private baseUrl: string;
   
-  constructor(llm: BaseChatModel, baseUrl: string = 'http://localhost:3001') {
+  constructor(
+    llm: BaseChatModel, 
+    baseUrl: string = 'http://mock-server:3001'
+  ) {
     this.llm = llm;
     this.baseUrl = baseUrl;
     this.graph = this.buildGraph();
@@ -81,12 +84,21 @@ export class VideoPipelineAssistantGraph {
     }
 
     const streamDebugDataCollectorNode = async (state: typeof StateAnnotation.State) => {
-      const response = await axios.get<StreamStatusResponse>(`${this.baseUrl}/api/streams/${state.streamName}/status`);
-      return {
-        streamStatus: response.data.status,
-        streamError: response.data.error ?? '',
-        streamErrorDescription: response.data.errorDescription ?? ''
-      };
+      try {
+        const response = await axios.get<StreamStatusResponse>(`${this.baseUrl}/api/streams/${state.streamName}/status`);
+        return {
+          streamStatus: response.data.status,
+          streamError: response.data.error ?? '',
+          streamErrorDescription: response.data.errorDescription ?? ''
+        };
+      } catch (error) {
+        console.log('Stream status service not available, skipping...');
+        return {
+          streamStatus: 'unknown',
+          streamError: 'Service unavailable',
+          streamErrorDescription: 'The stream status service is not available'
+        };
+      }
     }
 
     const debugStreamRouter = (state: typeof StateAnnotation.State) => 
@@ -106,39 +118,75 @@ export class VideoPipelineAssistantGraph {
     }
 
     const checkLauncherStatusNode = async (state: typeof StateAnnotation.State) => {
-      const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
-      return {
-        jobData: {
-          launcherStatus: response.data.status
-        }
-      };
+      try {
+        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
+        return {
+          jobData: {
+            launcherStatus: response.data.status
+          }
+        };
+      } catch (error) {
+        console.log('Launcher status service not available, skipping...');
+        return {
+          jobData: {
+            launcherStatus: 'unknown'
+          }
+        };
+      }
     }
 
     const checkDBStatusNode = async (state: typeof StateAnnotation.State) => {
-      const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/db-status`);
-      return {
-        jobData: {
-          dbStatus: response.data.status
-        }
-      };
+      try {
+        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/db-status`);
+        return {
+          jobData: {
+            dbStatus: response.data.status
+          }
+        };
+      } catch (error) {
+        console.log('DB status service not available, skipping...');
+        return {
+          jobData: {
+            dbStatus: 'unknown'
+          }
+        };
+      }
     }
 
     const checkJobOrderNode = async (state: typeof StateAnnotation.State) => {
-      const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/order-status`);
-      return {
-        jobData: {
-          jobOrderStatus: response.data.status
-        }
-      };
+      try {
+        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/order-status`);
+        return {
+          jobData: {
+            jobOrderStatus: response.data.status
+          }
+        };
+      } catch (error) {
+        console.log('Job order status service not available, skipping...');
+        return {
+          jobData: {
+            jobOrderStatus: 'unknown'
+          }
+        };
+      }
     }
 
     const checkSystemResourcesNode = async (state: typeof StateAnnotation.State) => {
-      const response = await axios.get<SystemResourcesResponse>(`${this.baseUrl}/api/system/resources`);
-      return {
-        jobData: {
-          systemResourcesStatus: `memory: ${response.data.memory}%, cpu: ${response.data.cpu}%, disk: ${response.data.disk}%, network in: ${response.data.network.in}%, network out: ${response.data.network.out}%`
-        }
-      };
+      try {
+        const response = await axios.get<SystemResourcesResponse>(`${this.baseUrl}/api/system/resources`);
+        return {
+          jobData: {
+            systemResourcesStatus: `memory: ${response.data.memory}%, cpu: ${response.data.cpu}%, disk: ${response.data.disk}%, network in: ${response.data.network.in}%, network out: ${response.data.network.out}%`
+          }
+        };
+      } catch (error) {
+        console.log('System resources service not available, skipping...');
+        return {
+          jobData: {
+            systemResourcesStatus: 'unknown'
+          }
+        };
+      }
     }
     
     const debugJobNode = async (state: typeof StateAnnotation.State) => {
@@ -156,6 +204,7 @@ export class VideoPipelineAssistantGraph {
       );
       console.log("FINAL DEBUG STATE:", state);
       console.log("FINAL DEBUG RESPONSE:", msg.content);
+
       return { message: msg.content };
     }
 
@@ -198,7 +247,10 @@ export class VideoPipelineAssistantGraph {
    * @returns The final state after graph execution
    */
   async invoke(initialState: Partial<typeof StateAnnotation.State>): Promise<typeof StateAnnotation.State> {
-    return await this.graph.invoke(initialState as typeof StateAnnotation.State);
+    console.log('initialState from invoke', initialState);
+    const result = await this.graph.invoke(initialState as typeof StateAnnotation.State);
+    console.log('result from graph from invoke', result);
+    return result;
   }
   
   /**
@@ -207,10 +259,16 @@ export class VideoPipelineAssistantGraph {
    * @returns A stream of state updates
    */
   async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
-    return await this.graph.stream(initialState as typeof StateAnnotation.State);
+    console.log('initialState from stream', initialState);
+    const result = await this.graph.stream(initialState as typeof StateAnnotation.State);
+    console.log('result from graph from stream', result);
+    return result;
   }
 }
 
-export async function createGraph(dependencies: { llm: BaseChatModel, baseUrl: string }) {
+export async function createGraph(dependencies: { 
+  llm: BaseChatModel,
+  baseUrl: string 
+}) {
   return new VideoPipelineAssistantGraph(dependencies.llm, dependencies.baseUrl);
 } 

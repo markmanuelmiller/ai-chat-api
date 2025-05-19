@@ -43,7 +43,6 @@ async function bootstrap() {
     // Setup application services
     const authService = new AuthService(userRepository, jwtService);
     const chatService = new ChatService(chatRepository, messageRepository, eventEmitter);
-    const aiService = new AIService(chatRepository, messageRepository, eventEmitter, env);
 
     // Setup controllers
     const authController = new AuthController(authService);
@@ -63,6 +62,17 @@ async function bootstrap() {
 
     // Setup WebSockets
     const wsManager = new WebSocketManager(server, userRepository, env.JWT_SECRET);
+
+    // Initialize AI Service
+    const aiService = new AIService(
+      chatRepository, 
+      messageRepository, 
+      eventEmitter,
+      wsManager,
+      env
+    );
+
+    // Register WebSocket handlers
     registerWebSocketHandlers(wsManager, chatService, aiService);
 
     // Start server

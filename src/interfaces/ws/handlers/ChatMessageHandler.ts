@@ -28,6 +28,9 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
         chatId,
       }));
 
+      // @todo: remove this line
+      const stream = false;
+
       if (stream) {
         // Start streaming the response
         const responseStream = await this.aiService.streamResponse(chatId, message);

@@ -2,17 +2,21 @@ import { Logger } from '@nestjs/common';
 import { VideoPipelineAssistantGraph } from './graphs/video-pipeline-graph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { StateAnnotation } from './graphs/video-pipeline-graph';
+import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
+
 /**
  * Service for handling log analysis using LangGraph
  */
-
 
 export class VideoPipelineService {
   private readonly logger = new Logger(VideoPipelineService.name);
   private graph: VideoPipelineAssistantGraph;
   
-  constructor(llm: BaseChatModel) {
-    this.graph = new VideoPipelineAssistantGraph(llm);
+  constructor(
+    llm: BaseChatModel,
+    private readonly wsManager: WebSocketManager
+  ) {
+    this.graph = new VideoPipelineAssistantGraph(llm, 'http://mock-server:3001');
   }
   
   /**
@@ -23,14 +27,9 @@ export class VideoPipelineService {
    */
   async processMessage(chatId: string, userMessage: string): Promise<string> {
     try {
-      // Initial state for the graph
-      // const initialState: Partial<GraphState> = {
-      //   messages: [{ role: "user", content: userMessage }],
-      //   chatId
-      // };
-
       const initialState: Partial<typeof StateAnnotation.State> = {
         message: userMessage,
+        chatId,
       };
 
       console.log('initialState', initialState);
@@ -56,6 +55,7 @@ export class VideoPipelineService {
       // Initial state for the graph
       const initialState: Partial<typeof StateAnnotation.State> = {
         message: userMessage,
+        chatId,
       };
       
       // Stream the graph execution

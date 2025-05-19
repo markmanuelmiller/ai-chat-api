@@ -45,4 +45,13 @@ export class MockServer {
   getBaseUrl(): string {
     return `http://localhost:${this.port}`;
   }
-} 
+}
+
+// Main function to start the server when this file is executed directly
+if (require.main === module) {
+  const server = new MockServer();
+  server.start().catch(err => {
+    console.error('Failed to start mock server:', err);
+    process.exit(1);
+  });
+}
