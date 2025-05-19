@@ -1,25 +1,13 @@
 import { StateGraph, Annotation } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import axios from 'axios';
+import { JobGraph } from './job-graph';
+import { LogGraph } from './log-graph';
 
 interface StreamStatusResponse {
   status: string;
   error?: string;
   errorDescription?: string;
-}
-
-interface JobStatusResponse {
-  status: string;
-}
-
-interface SystemResourcesResponse {
-  cpu: number;
-  memory: number;
-  disk: number;
-  network: {
-    in: number;
-    out: number;
-  };
 }
 
 // Graph state
@@ -42,6 +30,13 @@ export const JobDataAnnotation = Annotation.Root({
   report: Annotation<string>
 });
 
+export const LogDataAnnotation = Annotation.Root({
+  logs: Annotation<string[]>,
+  errors: Annotation<string[]>,
+  warnings: Annotation<string[]>,
+  analysis: Annotation<string>
+});
+
 export const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>,
   message: Annotation<string>, // user message
@@ -55,6 +50,12 @@ export const StateAnnotation = Annotation.Root({
       ...next
     })
   }),
+  logData: Annotation<typeof LogDataAnnotation.State>({
+    reducer: (prev: typeof LogDataAnnotation.State, next: typeof LogDataAnnotation.State) => ({
+      ...prev,
+      ...next
+    })
+  }),
   finalReport: Annotation<string>
 });
 
@@ -62,6 +63,8 @@ export class DebugStreamGraph {
   private graph: any;
   private llm: BaseChatModel;
   private baseUrl: string;
+  private jobGraph: JobGraph;
+  private logGraph: LogGraph;
   
   constructor(
     llm: BaseChatModel, 
@@ -69,6 +72,8 @@ export class DebugStreamGraph {
   ) {
     this.llm = llm;
     this.baseUrl = config.mockServerUrl;
+    this.jobGraph = new JobGraph(llm, config);
+    this.logGraph = new LogGraph(llm, config);
     this.graph = this.buildGraph();
   }
   
@@ -127,7 +132,6 @@ export class DebugStreamGraph {
       const msg = await this.llm.invoke(
         `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
       );
-      // this.llm.withStructuredOutput
       return {
         streamName: msg.content.toString(),
         jobData: {
@@ -136,126 +140,47 @@ export class DebugStreamGraph {
       };
     }
 
-    const checkLauncherStatusNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
-        return {
-          jobData: {
-            launcherStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('Launcher status service not available, skipping...');
-        return {
-          jobData: {
-            launcherStatus: 'unknown'
-          }
-        };
-      }
-    }
+    const processSubgraphsNode = async (state: typeof StateAnnotation.State) => {
+      // Run both subgraphs in parallel
+      const [jobResult, logResult] = await Promise.all([
+        this.jobGraph.invoke(state),
+        this.logGraph.invoke(state)
+      ]);
 
-    const checkDBStatusNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/db-status`);
-        return {
-          jobData: {
-            dbStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('DB status service not available, skipping...');
-        return {
-          jobData: {
-            dbStatus: 'unknown'
-          }
-        };
-      }
-    }
-
-    const checkJobOrderNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/order-status`);
-        return {
-          jobData: {
-            jobOrderStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('Job order status service not available, skipping...');
-        return {
-          jobData: {
-            jobOrderStatus: 'unknown'
-          }
-        };
-      }
-    }
-
-    const checkSystemResourcesNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<SystemResourcesResponse>(`${this.baseUrl}/api/system/resources`);
-        return {
-          jobData: {
-            systemResourcesStatus: `memory: ${response.data.memory}%, cpu: ${response.data.cpu}%, disk: ${response.data.disk}%, network in: ${response.data.network.in}%, network out: ${response.data.network.out}%`
-          }
-        };
-      } catch (error) {
-        console.log('System resources service not available, skipping...');
-        return {
-          jobData: {
-            systemResourcesStatus: 'unknown'
-          }
-        };
-      }
-    }
-    
-    const debugJobNode = async (state: typeof StateAnnotation.State) => {
-      // Include relevant chat history in the troubleshooting prompt
-      const chatContext = state.chatHistory.slice(-3).join('\n');
-      const msg = await this.llm.invoke(
-        `Given the following chat history:
-        ${chatContext}
-        
-        Troubleshoot the stream: ${state.streamName} 
-
-        Stream Job Status:
-        - Launcher Status: ${state.jobData.launcherStatus}
-        - DB Status: ${state.jobData.dbStatus}
-        - Job Order Status: ${state.jobData.jobOrderStatus}
-        - System Resources Status: ${state.jobData.systemResourcesStatus}
-
-        Can you help troubleshoot the stream?
-        `
-      );
-      console.log("FINAL DEBUG STATE:", state);
-      console.log("FINAL DEBUG RESPONSE:", msg.content);
-
-      // Add the response to chat history
-      state.chatHistory = [...state.chatHistory, msg.content.toString()];
-      return { 
-        message: msg.content,
-        chatHistory: state.chatHistory 
+      // Combine the results
+      return {
+        ...state,
+        jobData: jobResult.jobData,
+        logData: logResult.logData
       };
     }
 
     const generateFinalReportNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
-        `Generate a final report for the following stream: ${state.streamName} and the following debug information: ${state.jobData.report}`
+        `Generate a final report for the following stream: ${state.streamName}
+
+        Job Status Information:
+        ${state.jobData.report}
+
+        Log Analysis:
+        ${state.logData.analysis}
+
+        Please provide a comprehensive report that combines both the job status and log analysis.
+        Highlight any correlations between job issues and log patterns.
+        Provide actionable insights and recommendations.`
       );
       return {
         finalReport: msg.content.toString()
       };
     }
+
     // Build workflow
     const chain = new StateGraph(StateAnnotation)
       .addNode("intakeMessageNode", intakeMessageNode)
       .addNode("determineIntentNode", determineIntentNode)
       .addNode("streamNameNode", streamNameNode)
       .addNode("streamDebugDataCollectorNode", streamDebugDataCollectorNode)
-      .addNode("checkLauncherStatusNode", checkLauncherStatusNode)
-      .addNode("checkDBStatusNode", checkDBStatusNode)
-      .addNode("checkJobOrderNode", checkJobOrderNode)
-      .addNode("checkSystemResourcesNode", checkSystemResourcesNode)
-      .addNode("debugJobNode", debugJobNode)
+      .addNode("processSubgraphsNode", processSubgraphsNode)
       .addNode("generateFinalReportNode", generateFinalReportNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
@@ -264,16 +189,8 @@ export class DebugStreamGraph {
         Fail: "__end__"
       })
       .addEdge("streamNameNode", "streamDebugDataCollectorNode")
-      .addEdge("streamNameNode", "checkLauncherStatusNode")
-      .addEdge("streamNameNode", "checkDBStatusNode")
-      .addEdge("streamNameNode", "checkJobOrderNode")
-      .addEdge("streamNameNode", "checkSystemResourcesNode")
-      .addEdge("streamDebugDataCollectorNode", "debugJobNode")
-      .addEdge("checkLauncherStatusNode", "debugJobNode")
-      .addEdge("checkDBStatusNode", "debugJobNode")
-      .addEdge("checkJobOrderNode", "debugJobNode")
-      .addEdge("checkSystemResourcesNode", "debugJobNode")
-      .addEdge("debugJobNode", "generateFinalReportNode")
+      .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
+      .addEdge("processSubgraphsNode", "generateFinalReportNode")
       .addEdge("generateFinalReportNode", "__end__")
       .compile();
 
@@ -309,5 +226,5 @@ export async function createGraph(dependencies: {
   llm: BaseChatModel,
   baseUrl: string 
 }) {
-  return new DebugStreamGraph(dependencies.llm, dependencies.baseUrl);
+  return new DebugStreamGraph(dependencies.llm, dependencies);
 } 

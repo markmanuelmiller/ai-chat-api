@@ -41,7 +41,8 @@ describe('Debug Stream Graph Integration', () => {
         launcherStatus: '',
         dbStatus: '',
         jobOrderStatus: '',
-        systemResourcesStatus: ''
+        systemResourcesStatus: '',
+        report: ''
       },
       debugParams: {
         start: '',
@@ -51,6 +52,12 @@ describe('Debug Stream Graph Integration', () => {
         streamStatus: '',
         streamError: '',
         streamErrorDescription: ''
+      },
+      logData: {
+        logs: [],
+        errors: [],
+        warnings: [],
+        analysis: ''
       }
     };
 
