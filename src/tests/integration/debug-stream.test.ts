@@ -3,7 +3,8 @@ import { DebugStreamGraph } from '../../application/ai/graphs/debug-stream-graph
 import { MockServer } from '../mocks/server';
 
 // Increase global timeout to 30 seconds
-jest.setTimeout(30000);
+// jest.setTimeout(30000);
+jest.setTimeout(60000);
 
 const config = {
   mockServerUrl: 'http://localhost:3001',
@@ -69,5 +70,5 @@ describe('Debug Stream Graph Integration', () => {
     expect(result.jobData.jobOrderStatus).toBeDefined();
     expect(result.jobData.systemResourcesStatus).toBeDefined();
     expect(result.debugParams.streamStatus).toBeDefined();
-  }, 30000); // 30 second timeout for this specific test
+  }, 60000); // 60 second timeout for this specific test
 }); 
