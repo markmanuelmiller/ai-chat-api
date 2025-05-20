@@ -56,19 +56,20 @@ export class MockServer {
         this.server = this.app.listen(this.port, () => {
           console.log(`Mock server running on port ${this.port}`);
           resolve();
-        }).on('error', (err: any) => {
+        }).on('error', (err: Error) => {
           reject(new Error(`Failed to start server: ${err.message}`));
         });
       });
-    } catch (err) {
-      throw new Error(`Failed to start mock server: ${err.message}`);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      throw new Error(`Failed to start mock server: ${errorMessage}`);
     }
   }
 
   async stop(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.server) {
-        this.server.close((err: any) => {
+        this.server.close((err: Error | null) => {
           if (err) {
             reject(err);
             return;
