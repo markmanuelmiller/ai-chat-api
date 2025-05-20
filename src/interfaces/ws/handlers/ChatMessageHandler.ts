@@ -29,7 +29,7 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
       }));
 
       // @todo: remove this line
-      const stream = false;
+      // const stream = false;
 
       if (stream) {
         // Start streaming the response

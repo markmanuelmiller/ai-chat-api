@@ -56,7 +56,10 @@ export const StateAnnotation = Annotation.Root({
       ...next
     })
   }),
-  finalReport: Annotation<string>
+  finalReport: Annotation<string>,
+  streamingMessages: Annotation<string[]>({
+    reducer: (prev: string[], next: string[]) => [...prev, ...next]
+  })
 });
 
 export class DebugStreamGraph {
@@ -113,14 +116,16 @@ export class DebugStreamGraph {
         return {
           streamStatus: response.data.status,
           streamError: response.data.error ?? '',
-          streamErrorDescription: response.data.errorDescription ?? ''
+          streamErrorDescription: response.data.errorDescription ?? '',
+          streamingMessages: [`Fetching status for stream ${state.streamName}...`]
         };
       } catch (error) {
         console.log('Stream status service not available, skipping...');
         return {
           streamStatus: 'unknown',
           streamError: 'Service unavailable',
-          streamErrorDescription: 'The stream status service is not available'
+          streamErrorDescription: 'The stream status service is not available',
+          streamingMessages: [`Error: Unable to fetch stream status for ${state.streamName}`]
         };
       }
     }
@@ -151,7 +156,12 @@ export class DebugStreamGraph {
       return {
         ...state,
         jobData: jobResult.jobData,
-        logData: logResult.logData
+        logData: logResult.logData,
+        streamingMessages: [
+          'Processing job data...',
+          'Analyzing logs...',
+          'Combining results...'
+        ]
       };
     }
 
@@ -170,7 +180,8 @@ export class DebugStreamGraph {
         Provide actionable insights and recommendations.`
       );
       return {
-        finalReport: msg.content.toString()
+        finalReport: msg.content.toString(),
+        streamingMessages: ['Generating final report...']
       };
     }
 

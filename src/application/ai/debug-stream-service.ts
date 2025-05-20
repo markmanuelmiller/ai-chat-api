@@ -55,6 +55,7 @@ export class DebugStreamService {
       const initialState: Partial<typeof StateAnnotation.State> = {
         message: userMessage,
         chatId,
+        streamingMessages: []
       };
       
       // Stream the graph execution
@@ -62,9 +63,16 @@ export class DebugStreamService {
       let fullResponse = '';
       
       for await (const chunk of stream) {
-        // Only yield assistant messages to the client
-        if (chunk.message) {
-          const latestMessage = chunk.message;
+        // Yield any streaming messages
+        if (chunk.streamingMessages && chunk.streamingMessages.length > 0) {
+          for (const message of chunk.streamingMessages) {
+            yield message + '\n';
+          }
+        }
+        
+        // Yield the final report when available
+        if (chunk.finalReport) {
+          const latestMessage = chunk.finalReport;
           if (latestMessage.length > fullResponse.length) {
             // Only stream the new part
             const newContent = latestMessage.substring(fullResponse.length);
