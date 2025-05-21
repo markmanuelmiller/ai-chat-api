@@ -1,6 +1,8 @@
 import { StateGraph, Annotation } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import axios from 'axios';
+import { JobGraph } from './job-graph';
+import { LogGraph } from './log-graph';
 
 interface StreamStatusResponse {
   status: string;
@@ -8,25 +10,11 @@ interface StreamStatusResponse {
   errorDescription?: string;
 }
 
-interface JobStatusResponse {
-  status: string;
-}
-
-interface SystemResourcesResponse {
-  cpu: number;
-  memory: number;
-  disk: number;
-  network: {
-    in: number;
-    out: number;
-  };
-}
-
 // Graph state
 export const DebugParamsAnnotation = Annotation.Root({
   start: Annotation<string>,
   end: Annotation<string>,
-  streamName: Annotation<string>,
+  timezone: Annotation<string>,
   streamType: Annotation<string>,
   streamStatus: Annotation<string>,
   streamError: Annotation<string>,
@@ -39,12 +27,21 @@ export const JobDataAnnotation = Annotation.Root({
   dbStatus: Annotation<string>,
   jobOrderStatus: Annotation<string>,
   systemResourcesStatus: Annotation<string>,
+  report: Annotation<string>
+});
+
+export const LogDataAnnotation = Annotation.Root({
+  logs: Annotation<string[]>,
+  errors: Annotation<string[]>,
+  warnings: Annotation<string[]>,
+  analysis: Annotation<string>
 });
 
 export const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>,
-  message: Annotation<string>,
+  message: Annotation<string>, // user message
   intent: Annotation<string>,
+  chatHistory: Annotation<string[]>,
   streamName: Annotation<string>,
   debugParams: Annotation<typeof DebugParamsAnnotation.State>,
   jobData: Annotation<typeof JobDataAnnotation.State>({
@@ -52,31 +49,61 @@ export const StateAnnotation = Annotation.Root({
       ...prev,
       ...next
     })
+  }),
+  logData: Annotation<typeof LogDataAnnotation.State>({
+    reducer: (prev: typeof LogDataAnnotation.State, next: typeof LogDataAnnotation.State) => ({
+      ...prev,
+      ...next
+    })
+  }),
+  finalReport: Annotation<string>,
+  streamingMessages: Annotation<string[]>({
+    reducer: (prev: string[], next: string[]) => [...prev, ...next]
   })
 });
 
-export class VideoPipelineAssistantGraph {
+export class DebugStreamGraph {
   private graph: any;
   private llm: BaseChatModel;
   private baseUrl: string;
+  private jobGraph: JobGraph;
+  private logGraph: LogGraph;
   
   constructor(
     llm: BaseChatModel, 
-    baseUrl: string = 'http://mock-server:3001'
+    config: any
   ) {
     this.llm = llm;
-    this.baseUrl = baseUrl;
+    this.baseUrl = config.mockServerUrl;
+    this.jobGraph = new JobGraph(llm, config);
+    this.logGraph = new LogGraph(llm, config);
     this.graph = this.buildGraph();
   }
   
   private buildGraph(): any {
     const intakeMessageNode = async (state: typeof StateAnnotation.State) => {
-      return { message: state.message };
+      // Initialize chat history if it doesn't exist
+      if (!state.chatHistory) {
+        state.chatHistory = [];
+      }
+      
+      // Add the new message to chat history
+      state.chatHistory = [...state.chatHistory, state.message];
+      
+      return { 
+        message: state.message,
+        chatHistory: state.chatHistory 
+      };
     };
     
     const determineIntentNode = async (state: typeof StateAnnotation.State) => {
+      // Include chat history in the prompt for better context
+      const chatContext = state.chatHistory.slice(-3).join('\n');
       const msg = await this.llm.invoke(
-        `Determine the intent of the following message: ${state.message}. 
+        `Given the following chat history:
+        ${chatContext}
+        
+        Determine the intent of the most recent message: ${state.message}. 
         Respond only with one of the following: "debug_stream", "other".`);
 
       state.intent = msg.content.toString();
@@ -89,14 +116,16 @@ export class VideoPipelineAssistantGraph {
         return {
           streamStatus: response.data.status,
           streamError: response.data.error ?? '',
-          streamErrorDescription: response.data.errorDescription ?? ''
+          streamErrorDescription: response.data.errorDescription ?? '',
+          streamingMessages: [`Fetching status for stream ${state.streamName}...`]
         };
       } catch (error) {
         console.log('Stream status service not available, skipping...');
         return {
           streamStatus: 'unknown',
           streamError: 'Service unavailable',
-          streamErrorDescription: 'The stream status service is not available'
+          streamErrorDescription: 'The stream status service is not available',
+          streamingMessages: [`Error: Unable to fetch stream status for ${state.streamName}`]
         };
       }
     }
@@ -108,7 +137,6 @@ export class VideoPipelineAssistantGraph {
       const msg = await this.llm.invoke(
         `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
       );
-      // this.llm.withStructuredOutput
       return {
         streamName: msg.content.toString(),
         jobData: {
@@ -117,95 +145,44 @@ export class VideoPipelineAssistantGraph {
       };
     }
 
-    const checkLauncherStatusNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
-        return {
-          jobData: {
-            launcherStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('Launcher status service not available, skipping...');
-        return {
-          jobData: {
-            launcherStatus: 'unknown'
-          }
-        };
-      }
+    const processSubgraphsNode = async (state: typeof StateAnnotation.State) => {
+      // Run both subgraphs in parallel
+      const [jobResult, logResult] = await Promise.all([
+        this.jobGraph.invoke(state),
+        this.logGraph.invoke(state)
+      ]);
+
+      // Combine the results
+      return {
+        ...state,
+        jobData: jobResult.jobData,
+        logData: logResult.logData,
+        streamingMessages: [
+          'Processing job data...',
+          'Analyzing logs...',
+          'Combining results...'
+        ]
+      };
     }
 
-    const checkDBStatusNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/db-status`);
-        return {
-          jobData: {
-            dbStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('DB status service not available, skipping...');
-        return {
-          jobData: {
-            dbStatus: 'unknown'
-          }
-        };
-      }
-    }
-
-    const checkJobOrderNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/order-status`);
-        return {
-          jobData: {
-            jobOrderStatus: response.data.status
-          }
-        };
-      } catch (error) {
-        console.log('Job order status service not available, skipping...');
-        return {
-          jobData: {
-            jobOrderStatus: 'unknown'
-          }
-        };
-      }
-    }
-
-    const checkSystemResourcesNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<SystemResourcesResponse>(`${this.baseUrl}/api/system/resources`);
-        return {
-          jobData: {
-            systemResourcesStatus: `memory: ${response.data.memory}%, cpu: ${response.data.cpu}%, disk: ${response.data.disk}%, network in: ${response.data.network.in}%, network out: ${response.data.network.out}%`
-          }
-        };
-      } catch (error) {
-        console.log('System resources service not available, skipping...');
-        return {
-          jobData: {
-            systemResourcesStatus: 'unknown'
-          }
-        };
-      }
-    }
-    
-    const debugJobNode = async (state: typeof StateAnnotation.State) => {
+    const generateFinalReportNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
-        `Troubleshoot the stream: ${state.streamName} 
+        `Generate a final report for the following stream: ${state.streamName}
 
-        Stream Job Status:
-        - Launcher Status: ${state.jobData.launcherStatus}
-        - DB Status: ${state.jobData.dbStatus}
-        - Job Order Status: ${state.jobData.jobOrderStatus}
-        - System Resources Status: ${state.jobData.systemResourcesStatus}
+        Job Status Information:
+        ${state.jobData.report}
 
-        Can you help troubleshoot the stream?
-        `
+        Log Analysis:
+        ${state.logData.analysis}
+
+        Please provide a comprehensive report that combines both the job status and log analysis.
+        Highlight any correlations between job issues and log patterns.
+        Provide actionable insights and recommendations.`
       );
-      console.log("FINAL DEBUG STATE:", state);
-      console.log("FINAL DEBUG RESPONSE:", msg.content);
-
-      return { message: msg.content };
+      return {
+        finalReport: msg.content.toString(),
+        streamingMessages: ['Generating final report...']
+      };
     }
 
     // Build workflow
@@ -214,11 +191,8 @@ export class VideoPipelineAssistantGraph {
       .addNode("determineIntentNode", determineIntentNode)
       .addNode("streamNameNode", streamNameNode)
       .addNode("streamDebugDataCollectorNode", streamDebugDataCollectorNode)
-      .addNode("checkLauncherStatusNode", checkLauncherStatusNode)
-      .addNode("checkDBStatusNode", checkDBStatusNode)
-      .addNode("checkJobOrderNode", checkJobOrderNode)
-      .addNode("checkSystemResourcesNode", checkSystemResourcesNode)
-      .addNode("debugJobNode", debugJobNode)
+      .addNode("processSubgraphsNode", processSubgraphsNode)
+      .addNode("generateFinalReportNode", generateFinalReportNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
       .addConditionalEdges("determineIntentNode", debugStreamRouter, {
@@ -226,16 +200,9 @@ export class VideoPipelineAssistantGraph {
         Fail: "__end__"
       })
       .addEdge("streamNameNode", "streamDebugDataCollectorNode")
-      .addEdge("streamNameNode", "checkLauncherStatusNode")
-      .addEdge("streamNameNode", "checkDBStatusNode")
-      .addEdge("streamNameNode", "checkJobOrderNode")
-      .addEdge("streamNameNode", "checkSystemResourcesNode")
-      .addEdge("streamDebugDataCollectorNode", "debugJobNode")
-      .addEdge("checkLauncherStatusNode", "debugJobNode")
-      .addEdge("checkDBStatusNode", "debugJobNode")
-      .addEdge("checkJobOrderNode", "debugJobNode")
-      .addEdge("checkSystemResourcesNode", "debugJobNode")
-      .addEdge("debugJobNode", "__end__")
+      .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
+      .addEdge("processSubgraphsNode", "generateFinalReportNode")
+      .addEdge("generateFinalReportNode", "__end__")
       .compile();
 
     return chain;
@@ -270,5 +237,5 @@ export async function createGraph(dependencies: {
   llm: BaseChatModel,
   baseUrl: string 
 }) {
-  return new VideoPipelineAssistantGraph(dependencies.llm, dependencies.baseUrl);
+  return new DebugStreamGraph(dependencies.llm, dependencies);
 } 

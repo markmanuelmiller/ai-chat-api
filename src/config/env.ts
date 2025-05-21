@@ -16,3 +16,4 @@ export const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   LANGGRAPH_API_KEY: process.env.LANGGRAPH_API_KEY || '',
 };
+

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createServer } from 'http';
-import { env } from '@/config/env';
+// import { env } from '@/config/env';
+import { config } from '@/config/config';
 import { createApp } from '@/app';
 import { logger } from '@/utils/logger';
 import { registerWebSocketHandlers } from '@/interfaces/ws/registerHandlers';
@@ -61,23 +62,23 @@ async function bootstrap() {
     const server = createServer(app);
 
     // Setup WebSockets
-    const wsManager = new WebSocketManager(server, userRepository, env.JWT_SECRET);
+    const wsManager = new WebSocketManager(server, userRepository, config.JWT_SECRET);
 
     // Initialize AI Service
     const aiService = new AIService(
       chatRepository, 
       messageRepository, 
       eventEmitter,
+      config,
       wsManager,
-      env
     );
 
     // Register WebSocket handlers
     registerWebSocketHandlers(wsManager, chatService, aiService);
 
     // Start server
-    server.listen(env.PORT, () => {
-      logger.info(`Server is running on port ${env.PORT} in ${env.NODE_ENV} mode`);
+    server.listen(config.PORT, () => {
+      logger.info(`Server is running on port ${config.PORT} in ${config.NODE_ENV} mode`);
     });
 
     // Handle shutdown

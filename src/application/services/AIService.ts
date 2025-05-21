@@ -6,24 +6,21 @@ import { MessageCreatedEvent } from '@/domain/events/impl/MessageCreatedEvent';
 import { logger } from '@/utils/logger';
 import { RunnableSequence, RunnableLambda } from '@langchain/core/runnables';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { VideoPipelineService } from '../ai/video-pipeline-service';
+import { DebugStreamService } from '../ai/debug-stream-service';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
-
-// For a real implementation, you'd need to import StateGraph from @langchain/langgraph
-// This is commented out to avoid TypeScript errors in this sample implementation
-// import { StateGraph, END } from '@langchain/langgraph';
+import { StreamableMessage } from '@/core/StreamingMessageQueue';
 
 export class AIService {
   private llm: ChatAnthropic;
-  private videoPipelineService: VideoPipelineService;
+  private debugStreamService: DebugStreamService;
 
   constructor(
     private readonly chatRepository: ChatRepository,
     private readonly messageRepository: MessageRepository,
     private readonly eventEmitter: DomainEventEmitter,
-    private readonly wsManager: WebSocketManager,
-    private readonly config?: any
+    private readonly config: any,
+    private readonly webSocketManager: WebSocketManager,
   ) {
     this.llm = new ChatAnthropic({
       modelName: "claude-3-7-sonnet-latest",
@@ -32,12 +29,7 @@ export class AIService {
     });
     
     // Initialize the LogAnalysisService with the same API key and WebSocket manager
-    this.videoPipelineService = new VideoPipelineService(this.llm, this.wsManager);
-
-    console.log('LANGCHAIN_TRACING_V2:', process.env.LANGCHAIN_TRACING_V2);
-    console.log('LANGCHAIN_ENDPOINT:', process.env.LANGCHAIN_ENDPOINT);
-    console.log('LANGCHAIN_API_KEY exists:', !!process.env.LANGCHAIN_API_KEY); // Log existence, not the key itself for security
-    console.log('LANGCHAIN_PROJECT:', process.env.LANGCHAIN_PROJECT);
+    this.debugStreamService = new DebugStreamService(this.llm, config);
   }
 
   async generateResponse(chatId: string, userMessage: string): Promise<Message> {
@@ -64,7 +56,7 @@ export class AIService {
     );
 
     // Use the LangGraph-based log analysis service
-    const assistantResponse = await this.videoPipelineService.processMessage(chatId, userMessage);
+    const assistantResponse = await this.debugStreamService.processMessage(chatId, userMessage);
 
     // Save the assistant message
     const assistantMessage = Message.create({
@@ -80,13 +72,23 @@ export class AIService {
     return savedMessage;
   }
 
-  async streamResponse(chatId: string, userMessage: string): Promise<AsyncGenerator<string, void, unknown>> {
+  async streamResponse(chatId: string, userId: string, userMessage: string): Promise<void> {
+    const sessionId = chatId;
+    const queue = this.webSocketManager.getOrCreateQueue(sessionId);
+
     const chat = await this.chatRepository.findById(chatId);
     if (!chat) {
+      const errorMsg: StreamableMessage = {
+        type: 'ERROR',
+        payload: { error: 'Chat not found' },
+        timestamp: new Date().toISOString(),
+        sessionId: sessionId,
+      };
+      queue.addMessage(errorMsg);
+      queue.close();
       throw new Error('Chat not found');
     }
 
-    // Save the user message
     const userMessageEntity = Message.create({
       chatId,
       role: MessageRole.USER,
@@ -102,44 +104,80 @@ export class AIService {
       ),
     );
 
-    // Store references to instance properties needed in the generator
     const messageRepository = this.messageRepository;
     const eventEmitter = this.eventEmitter;
-    const videoPipelineService = this.videoPipelineService;
+    const debugStreamService = this.debugStreamService;
 
-    async function* streamResponse() {
+    (async () => {
+      let fullResponse = '';
       try {
-        // Stream from the LangGraph-based log analysis service
-        const stream = videoPipelineService.streamResponse(chatId, userMessage);
-        let fullResponse = '';
-        
-        for await (const chunk of stream) {
-          fullResponse += chunk;
-          yield chunk;
-        }
-        
-        // Save the complete response
-        const assistantMessage = Message.create({
-          chatId,
-          role: MessageRole.ASSISTANT,
-          content: fullResponse.trim(),
+        queue.addMessage({
+          type: 'STREAM_START',
+          payload: { message: 'AI processing started.' },
+          timestamp: new Date().toISOString(),
+          sessionId: sessionId,
         });
-        await messageRepository.save(assistantMessage);
-        await eventEmitter.emit(
-          new MessageCreatedEvent(
-            assistantMessage.id,
-            chatId,
-            MessageRole.ASSISTANT,
-            assistantMessage.content,
-          ),
-        );
-      } catch (error) {
-        logger.error('Error streaming response:', error);
-        yield "Sorry, I encountered an error processing your request.";
-      }
-    }
 
-    return streamResponse();
+        // Call the modified debugStreamService.streamResponse
+        // It now pushes to the queue directly and returns the full response string.
+        fullResponse = await debugStreamService.streamResponse(chatId, userMessage, queue, sessionId);
+        
+        // The loop for (const chunk of stream) is removed from AIService as it's now in DebugStreamService
+
+        // Save the complete response (if fullResponse is not empty)
+        if (fullResponse && fullResponse.trim()) {
+          const assistantMessage = Message.create({
+            chatId,
+            role: MessageRole.ASSISTANT,
+            content: fullResponse.trim(),
+          });
+          await messageRepository.save(assistantMessage);
+          await eventEmitter.emit(
+            new MessageCreatedEvent(
+              assistantMessage.id,
+              chatId,
+              MessageRole.ASSISTANT,
+              assistantMessage.content,
+            ),
+          );
+
+          // Send stream end message with the final response
+          queue.addMessage({
+            type: 'STREAM_END',
+            payload: { message: 'AI processing finished.', finalResponse: fullResponse.trim() },
+            timestamp: new Date().toISOString(),
+            sessionId: sessionId,
+          });
+        } else {
+          // If fullResponse is empty, it means DebugStreamService didn't produce a final string.
+          // This might be normal if the graph only sends other types of messages (e.g. status updates)
+          // or an error might have occurred (which DebugStreamService would have pushed to queue).
+          logger.info(`AI processing for session ${sessionId} finished without a final textual response.`);
+          // Send a different type of STREAM_END or rely on the queue being closed.
+          queue.addMessage({
+            type: 'STREAM_END',
+            payload: { message: 'AI processing finished without a final textual response.' },
+            timestamp: new Date().toISOString(),
+            sessionId: sessionId,
+          });
+        }
+
+      } catch (error) {
+        logger.error('Error during AI response streaming:', error);
+        const errorTyped = error as Error;
+        const errorMsg: StreamableMessage = {
+          type: 'ERROR',
+          payload: { error: 'Sorry, I encountered an error processing your request.', details: errorTyped.message },
+          timestamp: new Date().toISOString(),
+          sessionId: sessionId,
+        };
+        queue.addMessage(errorMsg);
+      } finally {
+        queue.close();
+      }
+    })();
+
+    return Promise.resolve();
   }
   
   
@@ -165,19 +203,4 @@ export class AIService {
       ? result.content 
       : JSON.stringify(result.content) || "I couldn't process your request.";
   }
-
-  /**
-   * In a real implementation, the below methods would be defined to handle the LangGraph nodes:
-   * 
-   * private defineDetectIntentNode() {...}
-   * private defineRequestFiltersNode() {...}
-   * private defineExtractOrRequestStreamNameNode() {...}
-   * private defineHandleOtherIntentNode() {...}
-   * private defineConfirmToolArgsNode() {...}
-   * private defineExecuteLogToolNode() {...}
-   * private defineAnalyzeLogsNode() {...}
-   * private defineProposeNextStepNode() {...}
-   * private defineProcessNextStepChoiceNode() {...}
-   * private defineHandleToolErrorNode() {...}
-   */
 }

@@ -1,87 +1,121 @@
-# LangGraph Implementation for Log Analysis
+# LangGraph Implementation for Stream Debugging
 
-This directory contains a LangGraph implementation for analyzing logs using a structured workflow. The implementation follows a graph-based approach where each node in the graph represents a specific step in the log analysis process.
+This directory contains a LangGraph implementation for debugging streams using a structured workflow. The implementation follows a graph-based approach where each node in the graph represents a specific step in the debugging process.
 
 ## Architecture
 
 The implementation consists of:
 
-1. **Graph Structure**: Defined in `graph/log-analysis-graph.ts`
-2. **Node Implementations**: Each step in the workflow is implemented as a separate node in the `graph/nodes/` directory
-3. **Types**: Shared types are defined in `graph/types/`
-4. **Integration Service**: The `log-analysis-service.ts` provides a clean API for interacting with the graph
+1. **Main Graph**: `debug-stream-graph.ts` - Orchestrates the overall debugging flow
+2. **Subgraphs**:
+   - `job-graph.ts` - Handles job-related status checks
+   - `log-graph.ts` - Manages log collection and analysis
+3. **Types**: Shared state types are defined in the graph files
+4. **Mock Server**: Provides simulated endpoints for testing
 
 ## Graph Flow
 
-The graph has the following nodes and edges:
-
+### Main Graph (DebugStreamGraph)
 ```
-(a) START --> detect_intent (Entry Point)   
-(b) detect_intent -- Conditional --> request_filters OR extract_or_request_stream_name OR handle_other_intent (Conditional Edge)   
-(c) extract_or_request_stream_name --> request_filters (Normal Edge)   
-(d) request_filters --> confirm_tool_args (Normal Edge)
-(e) confirm_tool_args -- Conditional --> execute_log_tool OR END (Conditional Edge)
-(f) execute_log_tool -- Conditional --> analyze_logs OR handle_tool_error (Conditional Edge, including error path)   
-(g) analyze_logs --> propose_next_step (Normal Edge)
-(h) propose_next_step --> process_next_step_choice (Normal Edge)
-(i) process_next_step_choice -- Conditional --> request_filters OR END (Conditional Edge, creating a potential loop)   
-(j) handle_other_intent --> END (Normal Edge)
-(k) handle_tool_error --> END (Normal Edge)
+START --> intakeMessageNode --> determineIntentNode -- Conditional --> streamNameNode OR END
+streamNameNode --> streamDebugDataCollectorNode --> processSubgraphsNode --> generateFinalReportNode --> END
+```
+
+### Job Subgraph (JobGraph)
+```
+START --> checkLauncherNode --> checkDbNode --> checkJobOrderNode --> checkSystemResourcesNode --> END
+```
+
+### Log Subgraph (LogGraph)
+```
+START --> collectLogsNode --> analyzeLogsNode --> END
 ```
 
 ## Node Descriptions
 
-1. **detect_intent**: Analyzes the user message to determine their intent
-2. **request_filters**: Extracts filter criteria for log searches
-3. **extract_or_request_stream_name**: Extracts the stream name from the user message
-4. **handle_other_intent**: Handles intents that don't relate to log analysis
-5. **confirm_tool_args**: Confirms and prepares arguments for the log search tool
-6. **execute_log_tool**: Executes log retrieval (currently mocked)
-7. **analyze_logs**: Analyzes the retrieved logs
-8. **propose_next_step**: Suggests next steps based on the analysis
-9. **process_next_step_choice**: Processes the user's choice for the next step
-10. **handle_tool_error**: Handles any errors in log tool execution
+### Main Graph Nodes
+1. **intakeMessageNode**: Processes incoming messages and maintains chat history
+2. **determineIntentNode**: Analyzes user intent using LLM
+3. **streamNameNode**: Extracts stream name from user message
+4. **streamDebugDataCollectorNode**: Collects initial stream status
+5. **processSubgraphsNode**: Runs job and log subgraphs in parallel
+6. **generateFinalReportNode**: Creates comprehensive debug report
+
+### Job Subgraph Nodes
+1. **checkLauncherNode**: Verifies launcher service status
+2. **checkDbNode**: Checks database connectivity
+3. **checkJobOrderNode**: Validates job order status
+4. **checkSystemResourcesNode**: Monitors system resource usage
+
+### Log Subgraph Nodes
+1. **collectLogsNode**: Gathers logs from the stream
+2. **analyzeLogsNode**: Analyzes logs for patterns and issues
+
+## State Management
+
+The implementation uses a shared state structure with the following main components:
+
+```typescript
+StateAnnotation {
+  chatId: string
+  message: string
+  intent: string
+  chatHistory: string[]
+  streamName: string
+  debugParams: DebugParamsAnnotation
+  jobData: JobDataAnnotation
+  logData: LogDataAnnotation
+  finalReport: string
+}
+```
+
+Each subgraph operates on this shared state, with specific annotations for their respective data:
+- `JobDataAnnotation`: Job-related status information
+- `LogDataAnnotation`: Log collection and analysis results
+- `DebugParamsAnnotation`: Stream debugging parameters
 
 ## Usage
 
-The `LogAnalysisService` provides two main methods:
+The `DebugStreamGraph` provides two main methods:
 
-1. `processMessage(chatId: string, userMessage: string): Promise<string>`: Processes a user message and returns a response
-2. `streamResponse(chatId: string, userMessage: string): AsyncGenerator<string, void, unknown>`: Streams the response
+1. `invoke(initialState: Partial<StateAnnotation.State>): Promise<StateAnnotation.State>`: Processes a debug request and returns the final state
+2. `stream(initialState: Partial<StateAnnotation.State>): AsyncIterable<StateAnnotation.State>`: Streams state updates during processing
 
 Example:
 
 ```typescript
-// Initialize the service
-const logAnalysisService = new LogAnalysisService();
+// Initialize the graph
+const graph = new DebugStreamGraph(llm, config);
 
-// Process a message
-const response = await logAnalysisService.processMessage("chat123", "Show me error logs from the last hour");
+// Process a debug request
+const result = await graph.invoke({
+  chatId: 'test-chat',
+  message: 'Can you check what\'s wrong with stream test-stream-1?',
+  jobData: { /* initial job data */ },
+  logData: { /* initial log data */ }
+});
 
-// Or stream the response
-for await (const chunk of logAnalysisService.streamResponse("chat123", "Show me error logs from the last hour")) {
-  console.log(chunk);
+// Or stream the updates
+for await (const state of graph.stream(initialState)) {
+  console.log(state);
 }
 ```
 
-## Integration with AIService
+## Integration with Mock Server
 
-The `LogAnalysisService` is integrated with the main `AIService` in the application. The `AIService` uses the `LogAnalysisService` for both the regular and streaming response methods.
-
-## Customization
-
-To customize the implementation:
-
-1. Modify the node implementations in `graph/nodes/` to change the behavior of specific steps
-2. Adjust the graph structure in `log-analysis-graph.ts` to change the flow
-3. Update the state types in `graph/types/state.ts` if additional state properties are needed
+The implementation includes a mock server that provides endpoints for:
+- Stream status: `/api/streams/:streamName/status`
+- Job status: `/api/streams/:streamName/job`
+- Log collection: `/api/streams/:streamName/logs`
 
 ## Dependencies
 
-This implementation relies on the following dependencies:
-
+This implementation relies on:
+- `@langchain/langgraph`: For graph-based workflow
 - `@langchain/core`: For basic LangChain functionality
-- `@langchain/langgraph`: For the graph-based workflow
-- `@langchain/openai`: For OpenAI model integration
+- `axios`: For HTTP requests
+- `@langchain/anthropic`: For Claude model integration
 
-Make sure these are installed in your project. 
+## Testing
+
+Integration tests are provided in `tests/integration/debug-stream.test.ts` to verify the complete debugging workflow. 
