@@ -5,9 +5,19 @@ A TypeScript Node.js server for AI chat applications with WebSockets and LangCha
 ## Start
 
 ```bash
-npm run docker:up
+# if first time, run
+npm install
 
-npm run docker:down[v]
+npm run docker-with-client:up
+npm run migrate
+npm run seed
+
+# if changes to src were made, run
+npm run docker:down
+npm run docker-with-client:up:build
+
+# if you want to stop the containers, run
+npm run docker:down
 ```
 
 ## Features
