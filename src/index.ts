@@ -69,7 +69,8 @@ async function bootstrap() {
       chatRepository, 
       messageRepository, 
       eventEmitter,
-      config
+      config,
+      wsManager,
     );
 
     // Register WebSocket handlers

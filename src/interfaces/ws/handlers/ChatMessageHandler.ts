@@ -32,23 +32,18 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
       // const stream = false;
 
       if (stream) {
-        // Start streaming the response
-        const responseStream = await this.aiService.streamResponse(chatId, message);
+        // Call AIService.streamResponse to kick off the streaming. 
+        // AIService will use the WebSocketManager to push messages to a queue,
+        // and WebSocketManager will send those messages to the client.
+        // The client.userId is needed by AIService.
+        await this.aiService.streamResponse(chatId, client.userId, message);
 
-        // Send each chunk as it comes in
-        for await (const chunk of responseStream) {
-          client.send(JSON.stringify({
-            type: 'chat_response_chunk',
-            chatId,
-            chunk,
-          }));
-        }
+        // No need to loop here anymore, as WebSocketManager handles sending queued messages.
+        // The client will receive STREAM_START, CHUNK, STREAM_END, etc., from the queue.
+        // We can consider if an additional ack like 'STREAM_INITIATED' is useful here,
+        // but 'message_received' already serves as an initial ack.
+        // The old 'chat_response_chunk' and 'chat_response_complete' from this handler are now obsolete.
 
-        // Signal completion of the response stream
-        client.send(JSON.stringify({
-          type: 'chat_response_complete',
-          chatId,
-        }));
       } else {
         // Generate the full response without streaming
         const fullResponse = await this.aiService.generateResponse(chatId, message);

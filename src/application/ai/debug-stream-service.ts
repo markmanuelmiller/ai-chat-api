@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { DebugStreamGraph } from './graphs/debug-stream-graph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { StateAnnotation } from './graphs/debug-stream-graph';
+import { StreamingMessageQueue, StreamableMessage } from '@/core/StreamingMessageQueue';
 
 /**
  * Service for handling log analysis using LangGraph
@@ -31,11 +32,10 @@ export class DebugStreamService {
         chatId,
       };
 
-      console.log('initialState', initialState);
+      this.logger.debug('processMessage initialState', initialState);
       
-      // Execute the graph
       const result = await this.graph.invoke(initialState);
-      console.log('result from graph', result);
+      this.logger.debug('processMessage result from graph', result);
       return result.message;
     } catch (error) {
       this.logger.error('Error processing message:', error);
@@ -44,50 +44,166 @@ export class DebugStreamService {
   }
   
   /**
-   * Stream a response to a user message
+   * Stream a response to a user message by pushing events directly to a queue.
    * @param chatId Chat ID for the conversation
    * @param userMessage Message from the user to process
-   * @returns An async generator that yields response chunks
+   * @param queue The message queue to push streamable messages to.
+   * @param sessionId The session ID for attributing messages.
+   * @returns A promise that resolves with the full final response string.
    */
-  async *streamResponse(chatId: string, userMessage: string): AsyncGenerator<string, void, unknown> {
+  async streamResponse(
+    chatId: string, 
+    userMessage: string, 
+    queue: StreamingMessageQueue, 
+    sessionId: string
+  ): Promise<string> {
+    let accumulatedFinalReport = ""; // Accumulates the final report content from an LLM
+
     try {
-      // Initial state for the graph
       const initialState: Partial<typeof StateAnnotation.State> = {
         message: userMessage,
         chatId,
-        streamingMessages: []
       };
       
-      // Stream the graph execution
+      this.logger.debug(`[DebugStreamService] Initializing graph stream for session ${sessionId} with state:`, initialState);
       const stream = await this.graph.stream(initialState);
-      let fullResponse = '';
       
       for await (const chunk of stream) {
-        // Yield any streaming messages
-        if (chunk.streamingMessages && chunk.streamingMessages.length > 0) {
-          for (const message of chunk.streamingMessages) {
-            yield message + '\n';
-          }
-        }
-        
-        // Yield the final report when available
-        if (chunk.finalReport) {
-          const latestMessage = chunk.finalReport;
-          if (latestMessage.length > fullResponse.length) {
-            // Only stream the new part
-            const newContent = latestMessage.substring(fullResponse.length);
-            fullResponse = latestMessage;
-            yield newContent;
+        this.logger.debug(`[DebugStreamService] Graph stream chunk for session ${sessionId}:`, chunk);
+
+        // Cast chunk to Record<string, any> to handle dynamic nodeName keys
+        const chunkData = chunk as Record<string, any>; 
+
+        for (const nodeName in chunkData) {
+          if (Object.prototype.hasOwnProperty.call(chunkData, nodeName)) {
+            const nodeOutput = chunkData[nodeName];
+            this.logger.debug(`[DebugStreamService] Processing output for node: ${nodeName}, session: ${sessionId}`, nodeOutput);
+
+            let nodeOutputProcessedForSpecificMessages = false;
+
+            // 1. Handle 'streamingMessages' (simple text updates from any node)
+            if (nodeOutput && Array.isArray(nodeOutput.streamingMessages) && nodeOutput.streamingMessages.length > 0) {
+              this.logger.debug(`[DebugStreamService] Found streamingMessages in ${nodeName} for session ${sessionId}`);
+              for (const streamingMsg of nodeOutput.streamingMessages) {
+                if (typeof streamingMsg === 'string') {
+                  queue.addMessage({
+                    type: 'GRAPH_MESSAGE',
+                    payload: {
+                      node: nodeName,
+                      message: streamingMsg,
+                    },
+                    timestamp: new Date().toISOString(),
+                    sessionId: sessionId,
+                  });
+                  this.logger.debug(`[DebugStreamService] Queued GRAPH_MESSAGE from ${nodeName}: "${streamingMsg}", session: ${sessionId}`);
+                }
+              }
+              nodeOutputProcessedForSpecificMessages = true;
+            }
+
+            // 2. Handle 'finalReport' (typically from an LLM node, e.g., generateFinalReportNode)
+            // This part assumes 'finalReport' contains the text from an LLM.
+            // If your LLM streams tokens into a different field, adjust this.
+            if (nodeOutput && typeof nodeOutput.finalReport === 'string') {
+              this.logger.debug(`[DebugStreamService] Found finalReport in ${nodeName} for session ${sessionId}`);
+              const llmReportContent = nodeOutput.finalReport;
+
+              // If the finalReport field contains the *entire* report up to this point,
+              // we send the new part. If it's just a token/chunk, this logic might be too simple,
+              // but usually for a field named "finalReport" it's the full text.
+              // Based on your logs, finalReport in generateFinalReportNode appears as a complete block.
+              if (llmReportContent.length > accumulatedFinalReport.length) {
+                const newContent = llmReportContent.substring(accumulatedFinalReport.length);
+                accumulatedFinalReport = llmReportContent; // Update the main accumulator for the service's return value
+                
+                queue.addMessage({
+                  type: 'LLM_CHUNK', // Or 'FINAL_REPORT_CHUNK' or 'FINAL_REPORT_UPDATE'
+                  payload: {
+                    node: nodeName,
+                    chunk: newContent, // Send the new part
+                    fullReportSnapshot: llmReportContent // Optionally send the full snapshot too
+                  },
+                  timestamp: new Date().toISOString(),
+                  sessionId: sessionId,
+                });
+                this.logger.debug(`[DebugStreamService] Queued LLM_CHUNK from ${nodeName}, new content length: ${newContent.length}, session: ${sessionId}`);
+
+              } else if (llmReportContent && llmReportContent !== accumulatedFinalReport) {
+                // This case implies the report might not be purely additive or was reset.
+                // For simplicity, if it's different and not shorter, send it as a new chunk/snapshot.
+                // Or if it *is* shorter, it might be a correction or a new stream.
+                // For now, let's assume it means it's a new complete version if not longer.
+                accumulatedFinalReport = llmReportContent; // Reset accumulator to this new version
+                 queue.addMessage({
+                  type: 'LLM_CHUNK', // Or 'FINAL_REPORT_SNAPSHOT'
+                  payload: {
+                    node: nodeName,
+                    chunk: llmReportContent, // Send the full content as a chunk
+                    fullReportSnapshot: llmReportContent 
+                  },
+                  timestamp: new Date().toISOString(),
+                  sessionId: sessionId,
+                });
+                this.logger.debug(`[DebugStreamService] Queued LLM_CHUNK (full snapshot) from ${nodeName}, length: ${llmReportContent.length}, session: ${sessionId}`);
+              }
+              nodeOutputProcessedForSpecificMessages = true;
+            }
+
+            // 3. Send a generic NODE_OUTPUT for the entire output of this node,
+            //    IF it wasn't fully captured by the specific handlers above OR if you always want full node outputs.
+            //    This is useful for client-side debugging or complex state updates.
+            //    Let's send it if there's any data at all in nodeOutput.
+            //    The client can then decide how to use/display this.
+            if (nodeOutput && Object.keys(nodeOutput).length > 0) {
+                 queue.addMessage({
+                    type: 'NODE_OUTPUT',
+                    payload: {
+                        node: nodeName,
+                        data: nodeOutput, // Send the full output of the node
+                    },
+                    timestamp: new Date().toISOString(),
+                    sessionId: sessionId,
+                });
+                this.logger.debug(`[DebugStreamService] Queued NODE_OUTPUT for ${nodeName}, session: ${sessionId}`);
+            } else if (!nodeOutputProcessedForSpecificMessages) {
+                // Node had an entry in the chunk but its output was empty/null
+                this.logger.debug(`[DebugStreamService] Node ${nodeName} had null/empty output, session: ${sessionId}`);
+                 queue.addMessage({
+                    type: 'NODE_SKIPPED_OR_EMPTY', // Or some other informational type
+                    payload: {
+                        node: nodeName,
+                        message: 'Node produced no output or was skipped.',
+                    },
+                    timestamp: new Date().toISOString(),
+                    sessionId: sessionId,
+                });
+            }
           }
         }
       }
       
-      if (!fullResponse) {
-        yield "I couldn't process your request.";
+      this.logger.log(`[DebugStreamService] Graph stream finished for session ${sessionId}. Accumulated final report length: ${accumulatedFinalReport.length}`);
+      if (!accumulatedFinalReport && !queue.isClosed()) {
+        this.logger.warn(`[DebugStreamService] No accumulated final report content for session ${sessionId} after stream completion.`);
       }
+      return accumulatedFinalReport;
+
     } catch (error) {
-      this.logger.error('Error streaming response:', error);
-      yield "Sorry, I encountered an error processing your request.";
+      const errorTyped = error as Error;
+      this.logger.error(`[DebugStreamService] Error in streamResponse for session ${sessionId}: ${errorTyped.message}`, errorTyped.stack);
+      if (!queue.isClosed()) {
+        queue.addMessage({
+          type: 'ERROR',
+          payload: { 
+            source: 'DebugStreamService', 
+            error: 'Error streaming graph response.', 
+            details: errorTyped.message 
+          },
+          timestamp: new Date().toISOString(),
+          sessionId: sessionId,
+        });
+      }
+      throw error; 
     }
   }
 } 

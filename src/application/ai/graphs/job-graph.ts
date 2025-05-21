@@ -32,6 +32,11 @@ export class JobGraph {
   }
   
   private buildGraph(): any {
+    const beginNode = async (state: typeof StateAnnotation.State) => {
+      console.log("BASE URL:", this.baseUrl);
+      return state;
+    }
+
     const checkLauncherStatusNode = async (state: typeof StateAnnotation.State) => {
       try {
         const response = await axios.get<JobStatusResponse>(`${this.baseUrl}/api/jobs/${state.jobData.jobId}/launcher-status`);
@@ -143,10 +148,18 @@ export class JobGraph {
       .addNode("checkJobOrderNode", checkJobOrderNode)
       .addNode("checkSystemResourcesNode", checkSystemResourcesNode)
       .addNode("debugJobNode", debugJobNode)
-      .addEdge("__start__", "checkLauncherStatusNode")
-      .addEdge("checkLauncherStatusNode", "checkDBStatusNode")
-      .addEdge("checkDBStatusNode", "checkJobOrderNode")
-      .addEdge("checkJobOrderNode", "checkSystemResourcesNode")
+      .addNode("beginNode", beginNode)
+      .addEdge("__start__", "beginNode")
+      // Fan out from beginNode to all check nodes
+      .addEdge("beginNode", "checkLauncherStatusNode")
+      .addEdge("beginNode", "checkDBStatusNode")
+      .addEdge("beginNode", "checkJobOrderNode")
+      .addEdge("beginNode", "checkSystemResourcesNode")
+      // Join all check nodes to debugJobNode
+      // debugJobNode will only run after all four preceding nodes complete
+      .addEdge("checkLauncherStatusNode", "debugJobNode")
+      .addEdge("checkDBStatusNode", "debugJobNode")
+      .addEdge("checkJobOrderNode", "debugJobNode")
       .addEdge("checkSystemResourcesNode", "debugJobNode")
       .addEdge("debugJobNode", "__end__")
       .compile();

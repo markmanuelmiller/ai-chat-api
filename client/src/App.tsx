@@ -20,60 +20,130 @@ function App() {
   const [currentResponse, setCurrentResponse] = useState<string>('');
   const [waitingForResponse, setWaitingForResponse] = useState(false);
   
-  // Connect to WebSocket with hardcoded token
-  const { isConnected, messages: wsMessages, error, sendMessage } = useWebSocket('ws://localhost:3000?token=abc123');
+  // Connect to WebSocket with hardcoded token and now, chatId
+  const webSocketUrl = `ws://localhost:3000?token=abc123&chatId=${encodeURIComponent(DEFAULT_CHAT_ID)}`;
+  const { isConnected, messages: wsMessages, error, sendMessage } = useWebSocket(webSocketUrl);
 
   // Process incoming WebSocket messages
   useEffect(() => {
     if (wsMessages.length === 0) return;
-    
-    const lastMessage = wsMessages[wsMessages.length - 1] as WebSocketMessage;
-    
+
+    // Assuming wsMessages from useWebSocket are already JSON.parsed
+    // and conform to our StreamableMessage structure from the backend.
+    const lastMessage = wsMessages[wsMessages.length - 1]; 
+
+    // Ensure lastMessage and lastMessage.type are defined
+    if (!lastMessage || typeof lastMessage.type !== 'string') {
+      console.warn('Received WebSocket message without a valid type:', lastMessage);
+      return;
+    }
+
+    console.log('Client received WS message:', lastMessage); // Good for debugging all messages
+
     switch (lastMessage.type) {
-      case 'message_received':
-        // Message received acknowledgment
+      case 'message_received': // This is a custom ack from ChatMessageHandler
         setWaitingForResponse(true);
         break;
-        
-      case 'chat_response_chunk':
-        // Handle streaming chunks
-        setCurrentResponse(prev => prev + lastMessage.chunk);
+
+      case 'STREAM_START':
+        console.log('Stream started:', lastMessage.payload);
+        setCurrentResponse(''); 
+        setWaitingForResponse(true);
         break;
+
+      case 'GRAPH_MESSAGE':
+        if (lastMessage.payload && typeof lastMessage.payload.message === 'string') {
+          const graphMsg = `[${lastMessage.payload.node || 'Graph'}]: ${lastMessage.payload.message}\n`;
+          console.log('Graph Message:', graphMsg);
+          // Uncomment below if you want these in the main chat bubble
+          // setCurrentResponse(prev => prev + graphMsg);
+        }
+        break;
+
+      case 'LLM_CHUNK':
+        if (lastMessage.payload && typeof lastMessage.payload.chunk === 'string') {
+          setCurrentResponse(prev => prev + lastMessage.payload.chunk);
+        }
+        break;
+
+      case 'NODE_OUTPUT':
+        console.log('Node Output Received:', lastMessage.payload);
+        // Example: append a small notification for testing
+        // if (lastMessage.payload && lastMessage.payload.node) {
+        //   setCurrentResponse(prev => prev + `[Node: ${lastMessage.payload.node} processed.]\n`);
+        // }
+        break;
+
+      case 'NODE_SKIPPED_OR_EMPTY':
+        console.log('Node Skipped or Empty:', lastMessage.payload);
+        // if (lastMessage.payload && lastMessage.payload.node) {
+        //    setCurrentResponse(prev => prev + `[Node: ${lastMessage.payload.node} - no output.]\n`);
+        // }
+        break;
+
+      case 'ERROR': 
+        console.error('Error message from backend stream:', lastMessage.payload);
+        if (lastMessage.payload && typeof lastMessage.payload.error === 'string') {
+          setCurrentResponse(prev =>
+            prev +
+            `\n**ERROR:** ${lastMessage.payload.error}${lastMessage.payload.details ? ` - ${lastMessage.payload.details}` : ''}\n`
+          );
+        }
+        setWaitingForResponse(false);
+        break;
+
+      case 'STREAM_END':
+        console.log('Stream ended. Final accumulated response:', currentResponse, 'Payload:', lastMessage.payload);
         
-      case 'chat_response_complete':
-        // Streaming response complete
-        setMessages(prev => [
-          ...prev,
-          {
-            id: uuidv4(),
-            content: currentResponse,
-            isUser: false,
-          }
-        ]);
+        if (currentResponse.trim() || (lastMessage.payload && typeof lastMessage.payload.finalResponse === 'string' && lastMessage.payload.finalResponse.trim())) {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: uuidv4(),
+              content: (lastMessage.payload && typeof lastMessage.payload.finalResponse === 'string' && lastMessage.payload.finalResponse.trim()) 
+                       ? lastMessage.payload.finalResponse 
+                       : currentResponse.trim(),
+              isUser: false,
+            },
+          ]);
+        } else if (lastMessage.payload && typeof lastMessage.payload.message === 'string') {
+             setMessages(prev => [
+                ...prev,
+                {
+                id: uuidv4(),
+                content: `[System: ${lastMessage.payload.message}]`,
+                isUser: false,
+                },
+            ]);
+        }
+        
         setCurrentResponse('');
         setWaitingForResponse(false);
         break;
-        
-      case 'chat_response_full':
-        // Full non-streaming response
-        setMessages(prev => [
-          ...prev,
-          {
-            id: uuidv4(),
-            content: lastMessage.content,
-            isUser: false,
-          }
-        ]);
+
+      case 'chat_response_full': // For non-streaming responses
+        if (lastMessage.payload && typeof lastMessage.payload.content === 'string') { // Assuming payload.content for full
+            setMessages(prev => [
+            ...prev,
+            {
+                id: uuidv4(),
+                content: lastMessage.payload.content, // Adjusted to look inside payload for consistency
+                isUser: false,
+            },
+            ]);
+        }
         setWaitingForResponse(false);
         break;
-        
-      case 'error':
-        // Error handling
-        console.error('WebSocket error:', lastMessage.error);
-        setWaitingForResponse(false);
+      
+      case 'chat_response_chunk': // Deprecated by LLM_CHUNK
+      case 'chat_response_complete': // Deprecated by STREAM_END
+        console.warn(`Received deprecated WebSocket message type: ${lastMessage.type}`, lastMessage);
         break;
+
+      default:
+        console.warn('Received unhandled WebSocket message type:', lastMessage.type, lastMessage);
     }
-  }, [wsMessages]);
+  }, [wsMessages, currentResponse]); // Added currentResponse to dependency array
 
   // Send a new message
   const handleSendMessage = useCallback((content: string) => {

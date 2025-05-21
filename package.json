@@ -17,6 +17,7 @@
     "docker:up": "docker-compose up -d",
     "docker:up:build": "docker-compose up -d --build",
     "docker-with-client:up": "docker-compose -f docker-compose.yml -f docker-compose.client.yml up -d",
+    "docker-with-client:up:build": "docker-compose -f docker-compose.yml -f docker-compose.client.yml up -d --build",
     "docker:down": "docker-compose -f docker-compose.yml -f docker-compose.client.yml down",
     "docker:downv": "docker-compose down -v",
     "migrate": "knex migrate:latest --knexfile src/infra/database/knexfile.ts",
