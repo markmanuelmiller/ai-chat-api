@@ -8,9 +8,15 @@ A TypeScript Node.js server for AI chat applications with WebSockets and LangCha
 # if first time, run
 npm install
 
+# copy .env.example to .env and update X_API_KEY values
+cp .env.example .env
+
+# run the containers
 npm run docker-with-client:up
 npm run migrate
 npm run seed
+
+# go to localhost:3002 in browser to see the client and try chatting "can you help me troubleshoot stream abc123?"
 
 # if changes to src were made, run
 npm run docker:down
