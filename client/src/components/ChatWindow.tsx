@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import ChatMessage from './ChatMessage';
+import ReactMarkdownDefault, { type Options as ReactMarkdownOptions } from 'react-markdown';
 
 interface Message {
   id: string;
@@ -15,6 +16,9 @@ interface ChatWindowProps {
 
 const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isConnected }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Explicitly cast ReactMarkdown to its specific Options type
+  const ReactMarkdown = ReactMarkdownDefault as React.ComponentType<ReactMarkdownOptions>;
 
   // Auto-scroll to the bottom when messages change
   useEffect(() => {
@@ -44,7 +48,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isConnected }) => {
       {messages.map((message) => (
         <ChatMessage
           key={message.id}
-          content={message.content}
+          content={<ReactMarkdown>{message.content}</ReactMarkdown>}
           isUser={message.isUser}
           isStreaming={message.isStreaming}
         />

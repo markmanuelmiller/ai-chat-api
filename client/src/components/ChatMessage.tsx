@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface ChatMessageProps {
-  content: string;
+  content: React.ReactNode;
   isUser: boolean;
   isStreaming?: boolean;
 }
@@ -18,7 +18,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ content, isUser, isStreaming 
             : 'bg-gray-200 text-gray-800 rounded-bl-none'
         } ${isStreaming ? 'border-l-4 border-green-500' : ''}`}
       >
-        <p className="text-sm">{content}</p>
+        {content}
       </div>
     </div>
   );
