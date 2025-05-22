@@ -53,10 +53,18 @@ function App() {
 
       case 'GRAPH_MESSAGE':
         if (lastMessage.payload && typeof lastMessage.payload.message === 'string') {
-          const graphMsg = `[${lastMessage.payload.node || 'Graph'}]: ${lastMessage.payload.message}\n`;
-          console.log('Graph Message:', graphMsg);
-          // Uncomment below if you want these in the main chat bubble
-          // setCurrentResponse(prev => prev + graphMsg);
+          const graphMsgContent = `[${lastMessage.payload.node || 'Graph'}]: ${lastMessage.payload.message}`;
+          console.log('Graph Message:', graphMsgContent);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: uuidv4(),
+              content: graphMsgContent,
+              isUser: false,
+            },
+          ]);
+          // If you also want to append to currentResponse, you can keep or modify this line:
+          // setCurrentResponse(prev => prev + graphMsgContent + '\n');
         }
         break;
 
