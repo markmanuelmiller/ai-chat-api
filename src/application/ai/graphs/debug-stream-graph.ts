@@ -1,5 +1,6 @@
 import { StateGraph, Annotation } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { RunnableConfig } from '@langchain/core/runnables';
 import axios from 'axios';
 import { JobGraph } from './job-graph';
 import { LogGraph } from './log-graph';
@@ -59,7 +60,9 @@ export const StateAnnotation = Annotation.Root({
   finalReport: Annotation<string>,
   streamingMessages: Annotation<string[]>({
     reducer: (prev: string[], next: string[]) => [...prev, ...next]
-  })
+  }),
+  humanConfirmation: Annotation<boolean | null>,
+  isResuming: Annotation<boolean | null>
 });
 
 export class DebugStreamGraph {
@@ -99,44 +102,74 @@ export class DebugStreamGraph {
     const determineIntentNode = async (state: typeof StateAnnotation.State) => {
       // Include chat history in the prompt for better context
       const chatContext = state.chatHistory.slice(-3).join('\n');
+      console.time('determineIntentLLM llmtime');
       const msg = await this.llm.invoke(
         `Given the following chat history:
         ${chatContext}
         
         Determine the intent of the most recent message: ${state.message}. 
         Respond only with one of the following: "debug_stream", "other".`);
+      console.timeEnd('determineIntentLLM llmtime');
 
       state.intent = msg.content.toString();
       return state;
     }
 
     const streamDebugDataCollectorNode = async (state: typeof StateAnnotation.State) => {
+      let newHumanConfirmation: boolean | null = null;
+
+      if (state.isResuming && state.humanConfirmation === true) {
+        // If resuming and user had approved, keep confirmation as true to proceed.
+        newHumanConfirmation = true;
+      } else {
+        // For initial run, or if resuming but user rejected (humanConfirmation would be false),
+        // or if isResuming is not set, set to null to trigger pause (or allow "End" if HC was false).
+        newHumanConfirmation = null;
+      }
+
       try {
         const response = await axios.get<StreamStatusResponse>(`${this.baseUrl}/api/streams/${state.streamName}/status`);
         return {
-          streamStatus: response.data.status,
-          streamError: response.data.error ?? '',
-          streamErrorDescription: response.data.errorDescription ?? '',
-          streamingMessages: [`Fetching status for stream ${state.streamName}...`]
+          debugParams: {
+            ...state.debugParams,
+            streamStatus: response.data.status,
+            streamError: response.data.error ?? '',
+            streamErrorDescription: response.data.errorDescription ?? '',
+          },
+          streamingMessages: [`Fetching status for stream ${state.streamName}...`],
+          humanConfirmation: newHumanConfirmation,
+          isResuming: false,
         };
       } catch (error) {
         console.log('Stream status service not available, skipping...');
         return {
-          streamStatus: 'unknown',
-          streamError: 'Service unavailable',
-          streamErrorDescription: 'The stream status service is not available',
-          streamingMessages: [`Error: Unable to fetch stream status for ${state.streamName}`]
+          debugParams: {
+            ...state.debugParams,
+            streamStatus: 'unknown',
+            streamError: 'Service unavailable',
+            streamErrorDescription: 'The stream status service is not available',
+          },
+          streamingMessages: [`Error: Unable to fetch stream status for ${state.streamName}`],
+          humanConfirmation: newHumanConfirmation,
+          isResuming: false,
         };
       }
+    }
+
+    const humanInputRouterNode = (state: typeof StateAnnotation.State) => {
+      // This router now correctly sees humanConfirmation as true if resumed with approval
+      return state.humanConfirmation === true ? "Continue" : "End";
     }
 
     const debugStreamRouter = (state: typeof StateAnnotation.State) => 
       state.intent === "debug_stream" ? "Pass" : "Fail";
 
     const streamNameNode = async (state: typeof StateAnnotation.State) => {
+      console.time('streamNameLLM llmtime');
       const msg = await this.llm.invoke(
         `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
       );
+      console.timeEnd('streamNameLLM llmtime');
       return {
         streamName: msg.content.toString(),
         jobData: {
@@ -160,25 +193,29 @@ export class DebugStreamGraph {
         streamingMessages: [
           'Processing job data...',
           'Analyzing logs...',
-          'Combining results...'
         ]
       };
     }
 
+    
     const generateFinalReportNode = async (state: typeof StateAnnotation.State) => {
+      console.time('generateFinalReportLLM llmtime');
       const msg = await this.llm.invoke(
         `Generate a final report for the following stream: ${state.streamName}
 
-        Job Status Information:
+        Job Status Report:
         ${state.jobData.report}
 
-        Log Analysis:
+        Log Analysis Report:
         ${state.logData.analysis}
 
-        Please provide a comprehensive report that combines both the job status and log analysis.
+        Please provide a concise final report that combines both the job status and log analysis.
         Highlight any correlations between job issues and log patterns.
-        Provide actionable insights and recommendations.`
+        Provide actionable insights and recommendations.
+        Use simple markdown formatting with bold, italic, and bullet points.
+        You can include status emojis to make the report more engaging.`
       );
+      console.timeEnd('generateFinalReportLLM llmtime');
       return {
         finalReport: msg.content.toString(),
         streamingMessages: ['Generating final report...']
@@ -200,7 +237,10 @@ export class DebugStreamGraph {
         Fail: "__end__"
       })
       .addEdge("streamNameNode", "streamDebugDataCollectorNode")
-      .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
+      .addConditionalEdges("streamDebugDataCollectorNode", humanInputRouterNode, {
+        Continue: "processSubgraphsNode",
+        End: "__end__"
+      })
       .addEdge("processSubgraphsNode", "generateFinalReportNode")
       .addEdge("generateFinalReportNode", "__end__")
       .compile();
@@ -223,12 +263,16 @@ export class DebugStreamGraph {
   /**
    * Streams the graph execution with the given input state
    * @param initialState Initial state for the graph
+   * @param config Optional config for the graph
    * @returns A stream of state updates
    */
-  async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
+  async stream(
+    initialState: Partial<typeof StateAnnotation.State>,
+    config?: RunnableConfig
+  ): Promise<AsyncIterable<typeof StateAnnotation.State>> {
     console.log('initialState from stream', initialState);
-    const result = await this.graph.stream(initialState as typeof StateAnnotation.State);
-    console.log('result from graph from stream', result);
+    console.log('config for stream', config);
+    const result = await this.graph.stream(initialState as typeof StateAnnotation.State, config);
     return result;
   }
 }

@@ -1,10 +1,17 @@
 import WebSocket from 'ws';
 import { Server } from 'http';
 import { verify } from 'jsonwebtoken';
-import { MessageHandlerRegistry } from './handlers/MessageHandlerRegistry';
 import { UserRepository } from '@/domain/repositories/UserRepository';
 import { logger } from '@/utils/logger';
 import { StreamingMessageQueue, StreamableMessage } from '@/core/StreamingMessageQueue';
+import { ChatMessageHandler } from './handlers/ChatMessageHandler';
+import { ResumeDebugStreamHandler } from './handlers/ResumeDebugStreamHandler';
+import { CreateChatHandler } from './handlers/CreateChatHandler';
+import { GetChatsHandler } from './handlers/GetChatsHandler';
+import { GetChatMessagesHandler } from './handlers/GetChatMessagesHandler';
+import { AIService } from '@/application/services/AIService';
+import { ChatService } from '@/application/services/ChatService';
+import { WebSocketMessageHandler } from './handlers/WebSocketMessageHandler';
 
 export interface AuthenticatedClient extends WebSocket {
   userId: string;
@@ -14,17 +21,37 @@ export interface AuthenticatedClient extends WebSocket {
 export class WebSocketManager {
   private wss: WebSocket.Server;
   private clients: Map<string, Set<AuthenticatedClient>> = new Map();
-  private handlerRegistry: MessageHandlerRegistry;
   private sessionQueues: Map<string, StreamingMessageQueue> = new Map();
+  private messageHandlers: Map<string, WebSocketMessageHandler>;
+  private readonly aiService: AIService;
+  private readonly chatService: ChatService;
+  private readonly userRepository: UserRepository;
+  private readonly jwtSecret: string;
 
   constructor(
     server: Server,
-    private readonly userRepository: UserRepository,
-    private readonly jwtSecret: string,
+    userRepository: UserRepository,
+    jwtSecret: string,
+    aiService: AIService,
+    chatService: ChatService
   ) {
     this.wss = new WebSocket.Server({ server });
-    this.handlerRegistry = new MessageHandlerRegistry();
+    this.userRepository = userRepository;
+    this.jwtSecret = jwtSecret;
+    this.aiService = aiService;
+    this.chatService = chatService;
+    this.messageHandlers = new Map();
+    this.initializeHandlers();
     this.setup();
+  }
+
+  private initializeHandlers(): void {
+    this.messageHandlers.set('chat_message', new ChatMessageHandler(this.aiService));
+    this.messageHandlers.set('RESUME_DEBUG_STREAM', new ResumeDebugStreamHandler(this.aiService));
+    this.messageHandlers.set('create_chat', new CreateChatHandler(this.chatService));
+    this.messageHandlers.set('get_chats', new GetChatsHandler(this.chatService));
+    this.messageHandlers.set('get_chat_messages', new GetChatMessagesHandler(this.chatService));
+    logger.info('[WebSocketManager] Message handlers initialized.');
   }
 
   private setup(): void {
@@ -171,7 +198,7 @@ export class WebSocketManager {
       return;
     }
 
-    const handler = this.handlerRegistry.getHandler(type);
+    const handler = this.messageHandlers.get(type);
     if (!handler) {
       client.send(JSON.stringify({
         type: 'error',
@@ -210,10 +237,6 @@ export class WebSocketManager {
         client.send(messageStr);
       }
     });
-  }
-
-  public getHandlerRegistry(): MessageHandlerRegistry {
-    return this.handlerRegistry;
   }
 
   public getOrCreateQueue(sessionId: string): StreamingMessageQueue {

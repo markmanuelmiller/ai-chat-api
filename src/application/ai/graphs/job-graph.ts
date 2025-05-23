@@ -112,6 +112,7 @@ export class JobGraph {
     const debugJobNode = async (state: typeof StateAnnotation.State) => {
       // Include relevant chat history in the troubleshooting prompt
       const chatContext = state.chatHistory.slice(-3).join('\n');
+      console.time('debugJobLLM llmtime');
       const msg = await this.llm.invoke(
         `Given the following chat history:
         ${chatContext}
@@ -127,6 +128,7 @@ export class JobGraph {
         Can you help troubleshoot the stream?
         `
       );
+      console.timeEnd('debugJobLLM llmtime');
       console.log("FINAL DEBUG STATE:", state);
       console.log("FINAL DEBUG RESPONSE:", msg.content);
 

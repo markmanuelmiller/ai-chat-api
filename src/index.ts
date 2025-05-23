@@ -4,7 +4,7 @@ import { createServer } from 'http';
 import { config } from '@/config/config';
 import { createApp } from '@/app';
 import { logger } from '@/utils/logger';
-import { registerWebSocketHandlers } from '@/interfaces/ws/registerHandlers';
+// import { registerWebSocketHandlers } from '@/interfaces/ws/registerHandlers';
 import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
 
 // Repositories
@@ -61,20 +61,19 @@ async function bootstrap() {
     // Create HTTP server
     const server = createServer(app);
 
-    // Setup WebSockets
-    const wsManager = new WebSocketManager(server, userRepository, config.JWT_SECRET);
-
-    // Initialize AI Service
+    // Initialize AI Service (now without WebSocketManager)
     const aiService = new AIService(
       chatRepository, 
       messageRepository, 
       eventEmitter,
       config,
-      wsManager,
     );
 
-    // Register WebSocket handlers
-    registerWebSocketHandlers(wsManager, chatService, aiService);
+    // Setup WebSockets (now takes chatService as well)
+    const wsManager = new WebSocketManager(server, userRepository, config.JWT_SECRET, aiService, chatService);
+
+    // Set WebSocketManager on AIService instance
+    aiService.setWebSocketManager(wsManager);
 
     // Start server
     server.listen(config.PORT, () => {

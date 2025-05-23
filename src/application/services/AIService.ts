@@ -10,36 +10,46 @@ import { DebugStreamService } from '../ai/debug-stream-service';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
 import { StreamableMessage } from '@/core/StreamingMessageQueue';
+import { StateAnnotation } from '../ai/graphs/debug-stream-graph';
 
 export class AIService {
   private llm: ChatAnthropic;
   private debugStreamService: DebugStreamService;
+  private readonly chatRepository: ChatRepository;
+  private readonly messageRepository: MessageRepository;
+  private readonly eventEmitter: DomainEventEmitter;
+  private readonly config: any;
+  private webSocketManager!: WebSocketManager;
 
   constructor(
-    private readonly chatRepository: ChatRepository,
-    private readonly messageRepository: MessageRepository,
-    private readonly eventEmitter: DomainEventEmitter,
-    private readonly config: any,
-    private readonly webSocketManager: WebSocketManager,
+    chatRepository: ChatRepository,
+    messageRepository: MessageRepository,
+    eventEmitter: DomainEventEmitter,
+    config: any,
   ) {
+    this.chatRepository = chatRepository;
+    this.messageRepository = messageRepository;
+    this.eventEmitter = eventEmitter;
+    this.config = config;
+
     this.llm = new ChatAnthropic({
-      modelName: "claude-3-7-sonnet-latest",
+      modelName: "claude-3-7-sonnet-latest", // Or your model
       temperature: 0,
       ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {})
     });
     
-    // Initialize the LogAnalysisService with the same API key and WebSocket manager
-    this.debugStreamService = new DebugStreamService(this.llm, config);
+    this.debugStreamService = new DebugStreamService(this.llm, this.config);
+  }
+
+  public setWebSocketManager(webSocketManager: WebSocketManager): void {
+    this.webSocketManager = webSocketManager;
   }
 
   async generateResponse(chatId: string, userMessage: string): Promise<Message> {
-
     const chat = await this.chatRepository.findById(chatId);
     if (!chat) {
       throw new Error('Chat not found');
     }
-
-    // Save the user message
     const userMessageEntity = Message.create({
       chatId,
       role: MessageRole.USER,
@@ -54,11 +64,7 @@ export class AIService {
         userMessageEntity.content,
       ),
     );
-
-    // Use the LangGraph-based log analysis service
     const assistantResponse = await this.debugStreamService.processMessage(chatId, userMessage);
-
-    // Save the assistant message
     const assistantMessage = Message.create({
       chatId,
       role: MessageRole.ASSISTANT,
@@ -68,7 +74,6 @@ export class AIService {
     await this.eventEmitter.emit(
       new MessageCreatedEvent(savedMessage.id, chatId, MessageRole.ASSISTANT, savedMessage.content),
     );
-
     return savedMessage;
   }
 
@@ -117,15 +122,80 @@ export class AIService {
           timestamp: new Date().toISOString(),
           sessionId: sessionId,
         });
-
-        // Call the modified debugStreamService.streamResponse
-        // It now pushes to the queue directly and returns the full response string.
         fullResponse = await debugStreamService.streamResponse(chatId, userMessage, queue, sessionId);
         
-        // The loop for (const chunk of stream) is removed from AIService as it's now in DebugStreamService
+        if (fullResponse && fullResponse.trim() && fullResponse !== "human_input_required") {
+          const assistantMessage = Message.create({
+            chatId,
+            role: MessageRole.ASSISTANT,
+            content: fullResponse.trim(),
+          });
+          await messageRepository.save(assistantMessage);
+          await eventEmitter.emit(
+            new MessageCreatedEvent(
+              assistantMessage.id,
+              chatId,
+              MessageRole.ASSISTANT,
+              assistantMessage.content,
+            ),
+          );
+          queue.addMessage({
+            type: 'STREAM_END',
+            payload: { message: 'AI processing finished.', finalResponse: fullResponse.trim() },
+            timestamp: new Date().toISOString(),
+            sessionId: sessionId,
+          });
+        } else if (fullResponse !== "human_input_required") { 
+          logger.info(`AI processing for session ${sessionId} finished without a final textual response (or was HITL).`);
+          queue.addMessage({
+            type: 'STREAM_END',
+            payload: { message: 'AI processing finished without a final textual response (or requires human input).' },
+            timestamp: new Date().toISOString(),
+            sessionId: sessionId,
+          });
+        }
+      } catch (error) {
+        logger.error('Error during AI response streaming:', error);
+        const errorTyped = error as Error;
+        const errorMsg: StreamableMessage = {
+          type: 'ERROR',
+          payload: { error: 'Sorry, I encountered an error processing your request.', details: errorTyped.message },
+          timestamp: new Date().toISOString(),
+          sessionId: sessionId,
+        };
+        queue.addMessage(errorMsg);
+      } finally {
+        if (fullResponse !== "human_input_required" && !queue.isClosed()) {
+            logger.info(`[AIService] Closing queue for session ${sessionId} after initial stream response flow.`);
+            queue.close();
+        }
+      }
+    })();
 
-        // Save the complete response (if fullResponse is not empty)
-        if (fullResponse && fullResponse.trim()) {
+    return Promise.resolve();
+  }
+  
+  async resumeDebugStream(sessionId: string, resumeState: typeof StateAnnotation.State, userConfirmation: boolean): Promise<void> {
+    const queue = this.webSocketManager.getOrCreateQueue(sessionId);
+    logger.info(`[AIService] Attempting to resume debug stream for session ${sessionId} with userConfirmation: ${userConfirmation}`);
+
+    const messageRepository = this.messageRepository;
+    const eventEmitter = this.eventEmitter;
+    const debugStreamService = this.debugStreamService;
+    const chatId = sessionId; 
+
+    if (queue.isClosed()) {
+        logger.warn(`[AIService] Queue for session ${sessionId} is already closed. Cannot resume.`);
+        return Promise.resolve();
+    }
+
+    (async () => {
+      let fullResponse = '';
+      try {
+        fullResponse = await debugStreamService.resumeStreamWithConfirmation(sessionId, resumeState, userConfirmation, queue);
+        
+        if (fullResponse && fullResponse.trim() && fullResponse !== "human_input_required") {
+          logger.info(`[AIService] Resumed stream for session ${sessionId} produced full response: ${fullResponse.length} chars`);
           const assistantMessage = Message.create({
             chatId,
             role: MessageRole.ASSISTANT,
@@ -141,45 +211,50 @@ export class AIService {
             ),
           );
 
-          // Send stream end message with the final response
           queue.addMessage({
             type: 'STREAM_END',
-            payload: { message: 'AI processing finished.', finalResponse: fullResponse.trim() },
+            payload: { message: 'AI processing finished after resume.', finalResponse: fullResponse.trim() },
+            timestamp: new Date().toISOString(),
+            sessionId: sessionId,
+          });
+        } else if (fullResponse === "human_input_required") {
+          logger.warn(`[AIService] Resumed stream for session ${sessionId} unexpectedly requires human input again.`);
+           queue.addMessage({
+            type: 'STREAM_END',
+            payload: { message: 'AI processing paused again unexpectedly.' }, 
             timestamp: new Date().toISOString(),
             sessionId: sessionId,
           });
         } else {
-          // If fullResponse is empty, it means DebugStreamService didn't produce a final string.
-          // This might be normal if the graph only sends other types of messages (e.g. status updates)
-          // or an error might have occurred (which DebugStreamService would have pushed to queue).
-          logger.info(`AI processing for session ${sessionId} finished without a final textual response.`);
-          // Send a different type of STREAM_END or rely on the queue being closed.
+          logger.info(`[AIService] Resumed stream for session ${sessionId} finished without a final textual response.`);
           queue.addMessage({
             type: 'STREAM_END',
-            payload: { message: 'AI processing finished without a final textual response.' },
+            payload: { message: 'AI processing finished after resume without a final textual response.' },
             timestamp: new Date().toISOString(),
             sessionId: sessionId,
           });
         }
 
       } catch (error) {
-        logger.error('Error during AI response streaming:', error);
+        logger.error(`[AIService] Error during resumed AI response streaming for session ${sessionId}:`, error);
         const errorTyped = error as Error;
         const errorMsg: StreamableMessage = {
           type: 'ERROR',
-          payload: { error: 'Sorry, I encountered an error processing your request.', details: errorTyped.message },
+          payload: { error: 'Sorry, I encountered an error processing your resumed request.', details: errorTyped.message },
           timestamp: new Date().toISOString(),
           sessionId: sessionId,
         };
         queue.addMessage(errorMsg);
       } finally {
-        queue.close();
+        if (fullResponse !== "human_input_required" && !queue.isClosed()) {
+            logger.info(`[AIService] Closing queue for session ${sessionId} after resume flow.`);
+            queue.close();
+        }
       }
     })();
 
     return Promise.resolve();
   }
-  
   
   /**
    * This method provides a simpler fallback implementation using just LangChain without the graph
@@ -197,7 +272,6 @@ export class AIService {
       this.llm
     ]);
     
-    // Process the request
     const result = await chain.invoke({userMessage});
     return typeof result.content === 'string' 
       ? result.content 

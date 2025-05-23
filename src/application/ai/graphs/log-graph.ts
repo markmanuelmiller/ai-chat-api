@@ -57,6 +57,7 @@ export class LogGraph {
       const errors = state.logData.errors.join('\n');
       const warnings = state.logData.warnings.join('\n');
 
+      console.time('analyzeLogsLLM llmtime');
       const msg = await this.llm.invoke(
         `Analyze the following logs for stream ${state.streamName}:
 
@@ -72,6 +73,7 @@ export class LogGraph {
         Please provide a detailed analysis of any patterns, issues, or notable events.
         Focus on identifying potential problems and their root causes.`
       );
+      console.timeEnd('analyzeLogsLLM llmtime');
 
       return {
         ...state,
