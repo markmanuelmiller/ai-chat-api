@@ -13,13 +13,13 @@ interface StreamStatusResponse {
 
 // Graph state
 export const DebugParamsAnnotation = Annotation.Root({
-  start: Annotation<string>,
-  end: Annotation<string>,
-  timezone: Annotation<string>,
-  streamType: Annotation<string>,
-  streamStatus: Annotation<string>,
-  streamError: Annotation<string>,
-  streamErrorDescription: Annotation<string>,
+  start: Annotation<string>, // stream start time
+  end: Annotation<string>, // stream end time
+  timezone: Annotation<string>, // end user timezone
+  streamType: Annotation<string>, // rtmp, webrtc
+  streamStatus: Annotation<string>, // running, paused, ended, failed
+  // streamError: Annotation<string>,
+  // streamErrorDescription: Annotation<string>,
 });
 
 export const JobDataAnnotation = Annotation.Root({
