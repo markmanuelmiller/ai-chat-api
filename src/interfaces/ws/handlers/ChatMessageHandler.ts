@@ -52,7 +52,7 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
         client.send(JSON.stringify({
           type: 'chat_response_full',
           chatId,
-          content: fullResponse.content,
+          content: fullResponse,
         }));
       }
     } catch (error) {
