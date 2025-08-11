@@ -25,7 +25,7 @@ export class DebugStreamService {
    * @param userMessage Message from the user to process
    * @returns The assistant's response
    */
-  async processMessage(chatId: string, userMessage: string): Promise<string> {
+  async processMessage(chatId: string, userMessage: string): Promise<any> {
     try {
       const initialState: Partial<typeof StateAnnotation.State> = {
         message: userMessage,
@@ -36,7 +36,7 @@ export class DebugStreamService {
       
       const result = await this.graph.invoke(initialState);
       this.logger.debug('processMessage result from graph', result);
-      return result.message;
+      return result;
     } catch (error) {
       this.logger.error('Error processing message:', error);
       return "Sorry, I encountered an error processing your request.";
