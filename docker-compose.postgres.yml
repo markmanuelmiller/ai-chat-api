@@ -10,9 +10,16 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - STORAGE_TYPE=memory
+      - STORAGE_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=ai_chat
       - JWT_SECRET=your_jwt_secret
       - JWT_EXPIRES_IN=1d
+    depends_on:
+      - postgres
     volumes:
       - ./:/app
       - /app/node_modules
@@ -20,21 +27,21 @@ services:
     networks:
       - ai-chat-network
 
-  mock-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  postgres:
+    image: postgres:15-alpine
     ports:
-      - "3001:3001"
+      - "5432:5432"
     environment:
-      - NODE_ENV=development
-      - PORT=3001
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ai_chat
     volumes:
-      - ./:/app
-      - /app/node_modules
-    command: ./node_modules/.bin/ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/mock-server.ts
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - ai-chat-network
 
 networks:
   ai-chat-network:
+
+volumes:
+  postgres_data:
