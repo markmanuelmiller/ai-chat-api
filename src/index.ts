@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { createServer } from 'http';
-// import { env } from '@/config/env';
 import { config } from '@/config/config';
 import { createApp } from '@/app';
 import { logger } from '@/utils/logger';
@@ -9,9 +8,7 @@ import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
 
 // Repositories
 import { DatabaseService } from '@/infra/database/DatabaseService';
-import { PgUserRepository } from '@/infra/repositories/PgUserRepository';
-import { PgChatRepository } from '@/infra/repositories/PgChatRepository';
-import { PgMessageRepository } from '@/infra/repositories/PgMessageRepository';
+import { RepositoryFactory } from '@/infra/repositories/RepositoryFactory';
 
 // Services
 import { AuthService } from '@/application/services/AuthService';
@@ -27,15 +24,22 @@ import { HealthController } from '@/api/controllers/HealthController';
 
 async function bootstrap() {
   try {
-    // Initialize database
-    const dbService = DatabaseService.getInstance();
-    await dbService.runMigrations();
-    logger.info('Database migrations applied successfully');
+    let dbService: DatabaseService | undefined;
 
-    // Setup repositories
-    const userRepository = new PgUserRepository(dbService);
-    const chatRepository = new PgChatRepository(dbService);
-    const messageRepository = new PgMessageRepository(dbService);
+    // Initialize database only if using PostgreSQL
+    if (config.STORAGE_TYPE === 'postgres') {
+      dbService = DatabaseService.getInstance();
+      await dbService.runMigrations();
+      logger.info('Database migrations applied successfully');
+    } else {
+      logger.info('Using in-memory storage');
+    }
+
+    // Setup repositories using factory
+    const { userRepository, chatRepository, messageRepository } = RepositoryFactory.createRepositories(
+      config.STORAGE_TYPE,
+      dbService
+    );
 
     // Setup domain services
     const jwtService = new JwtService();
@@ -79,13 +83,16 @@ async function bootstrap() {
     // Start server
     server.listen(config.PORT, () => {
       logger.info(`Server is running on port ${config.PORT} in ${config.NODE_ENV} mode`);
+      logger.info(`Storage type: ${config.STORAGE_TYPE}`);
     });
 
     // Handle shutdown
     const shutdown = async () => {
       logger.info('Shutting down gracefully...');
       server.close();
-      await dbService.disconnect();
+      if (dbService) {
+        await dbService.disconnect();
+      }
       process.exit(0);
     };
 

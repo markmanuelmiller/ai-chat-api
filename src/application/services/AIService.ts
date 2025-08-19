@@ -10,6 +10,7 @@ import { DebugStreamService } from '../ai/debug-stream-service';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { WebSocketManager } from '@/interfaces/ws/WebSocketManager';
 import { StreamableMessage } from '@/core/StreamingMessageQueue';
+import { Chat } from '@/domain/entities/Chat';
 
 export class AIService {
   private llm: ChatAnthropic;
@@ -76,17 +77,15 @@ export class AIService {
     const sessionId = chatId;
     const queue = this.webSocketManager.getOrCreateQueue(sessionId);
 
-    const chat = await this.chatRepository.findById(chatId);
+    let chat = await this.chatRepository.findById(chatId);
     if (!chat) {
-      const errorMsg: StreamableMessage = {
-        type: 'ERROR',
-        payload: { error: 'Chat not found' },
-        timestamp: new Date().toISOString(),
-        sessionId: sessionId,
-      };
-      queue.addMessage(errorMsg);
-      queue.close();
-      throw new Error('Chat not found');
+      // Auto-create the chat if it doesn't exist
+      chat = Chat.create({
+        id: chatId,
+        userId,
+        title: 'New Conversation',
+      });
+      await this.chatRepository.save(chat);
     }
 
     const userMessageEntity = Message.create({
