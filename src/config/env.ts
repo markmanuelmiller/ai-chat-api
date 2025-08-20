@@ -5,7 +5,7 @@ dotenv.config();
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   STREAM_DOCTOR_PORT: parseInt(process.env.STREAM_DOCTOR_PORT || '3000', 10),
-  STORAGE_TYPE: process.env.STORAGE_TYPE || 'postgres', // 'postgres' or 'memory'
+  STORAGE_TYPE: process.env.STORAGE_TYPE || 'memory', // 'postgres' or 'memory'
   DB_HOST: process.env.DB_HOST || 'localhost',
   DB_PORT: parseInt(process.env.DB_PORT || '5432', 10),
   DB_USER: process.env.DB_USER || 'postgres',

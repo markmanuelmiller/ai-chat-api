@@ -1,3 +1,4 @@
+import { User } from '@/domain/entities/User';
 import { UserRepository } from '@/domain/repositories/UserRepository';
 import { JwtService } from '@/infra/auth/JwtService';
 export interface AuthResult {
@@ -17,4 +18,5 @@ export declare class AuthService {
     validateToken(token: string): Promise<{
         userId: string;
     } | null>;
+    createUserIfNotExists(userId: string, email: string, name: string): Promise<User>;
 }
