@@ -60,6 +60,26 @@ class AuthService {
         }
         return { userId: user.id };
     }
+    async createUserIfNotExists(userId, email, name) {
+        // First try to find existing user by ID
+        let user = await this.userRepository.findById(userId);
+        if (user) {
+            return user;
+        }
+        // If not found by ID, try to find by email
+        user = await this.userRepository.findByEmail(email);
+        if (user) {
+            return user;
+        }
+        // Create new user if not found
+        const newUser = User_1.User.create({
+            id: userId,
+            email,
+            password: await (0, password_1.hashPassword)('cli-default-password'), // Default password for CLI users
+            name,
+        });
+        return await this.userRepository.save(newUser);
+    }
 }
 exports.AuthService = AuthService;
 //# sourceMappingURL=AuthService.js.map
