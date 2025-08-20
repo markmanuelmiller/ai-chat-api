@@ -7,7 +7,7 @@ class ChatMessageHandler {
         this.aiService = aiService;
     }
     async handle(client, payload, manager) {
-        const { chatId, message } = payload;
+        const { chatId, message, stream = true } = payload;
         if (!chatId || !message) {
             client.send(JSON.stringify({
                 type: 'error',
@@ -21,21 +21,30 @@ class ChatMessageHandler {
                 type: 'message_received',
                 chatId,
             }));
-            // Start streaming the response
-            const stream = await this.aiService.streamResponse(chatId, message);
-            // Send each chunk as it comes in
-            for await (const chunk of stream) {
+            // @todo: remove this line
+            // const stream = false;
+            if (stream) {
+                // Call AIService.streamResponse to kick off the streaming. 
+                // AIService will use the WebSocketManager to push messages to a queue,
+                // and WebSocketManager will send those messages to the client.
+                // The client.userId is needed by AIService.
+                await this.aiService.streamResponse(chatId, client.userId, message);
+                // No need to loop here anymore, as WebSocketManager handles sending queued messages.
+                // The client will receive STREAM_START, CHUNK, STREAM_END, etc., from the queue.
+                // We can consider if an additional ack like 'STREAM_INITIATED' is useful here,
+                // but 'message_received' already serves as an initial ack.
+                // The old 'chat_response_chunk' and 'chat_response_complete' from this handler are now obsolete.
+            }
+            else {
+                // Generate the full response without streaming
+                const fullResponse = await this.aiService.generateResponse(chatId, message);
+                // Send the complete response
                 client.send(JSON.stringify({
-                    type: 'chat_response_chunk',
+                    type: 'chat_response_full',
                     chatId,
-                    chunk,
+                    content: fullResponse,
                 }));
             }
-            // Signal completion of the response
-            client.send(JSON.stringify({
-                type: 'chat_response_complete',
-                chatId,
-            }));
         }
         catch (error) {
             logger_1.logger.error('Error processing chat message', error);

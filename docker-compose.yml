@@ -6,10 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3001:3001"
     environment:
       - NODE_ENV=development
-      - PORT=3000
+      - PORT=3001
       - STORAGE_TYPE=memory
       - JWT_SECRET=your_jwt_secret
       - JWT_EXPIRES_IN=1d
@@ -25,10 +25,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3001:3001"
+      - "3003:3003"
     environment:
       - NODE_ENV=development
-      - PORT=3001
+      - PORT=3003
     volumes:
       - ./:/app
       - /app/node_modules

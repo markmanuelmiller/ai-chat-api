@@ -1,16 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+require("module-alias/register");
+require("dotenv/config");
 const http_1 = require("http");
-const env_1 = require("@/config/env");
+const config_1 = require("@/config/config");
 const app_1 = require("@/app");
 const logger_1 = require("@/utils/logger");
 const registerHandlers_1 = require("@/interfaces/ws/registerHandlers");
 const WebSocketManager_1 = require("@/interfaces/ws/WebSocketManager");
 // Repositories
 const DatabaseService_1 = require("@/infra/database/DatabaseService");
-const PgUserRepository_1 = require("@/infra/repositories/PgUserRepository");
-const PgChatRepository_1 = require("@/infra/repositories/PgChatRepository");
-const PgMessageRepository_1 = require("@/infra/repositories/PgMessageRepository");
+const RepositoryFactory_1 = require("@/infra/repositories/RepositoryFactory");
 // Services
 const AuthService_1 = require("@/application/services/AuthService");
 const ChatService_1 = require("@/application/services/ChatService");
@@ -23,21 +23,24 @@ const ChatController_1 = require("@/api/controllers/ChatController");
 const HealthController_1 = require("@/api/controllers/HealthController");
 async function bootstrap() {
     try {
-        // Initialize database
-        const dbService = DatabaseService_1.DatabaseService.getInstance();
-        await dbService.initTables();
-        logger_1.logger.info('Database initialized');
-        // Setup repositories
-        const userRepository = new PgUserRepository_1.PgUserRepository(dbService);
-        const chatRepository = new PgChatRepository_1.PgChatRepository(dbService);
-        const messageRepository = new PgMessageRepository_1.PgMessageRepository(dbService);
+        let dbService;
+        // Initialize database only if using PostgreSQL
+        if (config_1.config.STORAGE_TYPE === 'postgres') {
+            dbService = DatabaseService_1.DatabaseService.getInstance();
+            await dbService.runMigrations();
+            logger_1.logger.info('Database migrations applied successfully');
+        }
+        else {
+            logger_1.logger.info('Using in-memory storage');
+        }
+        // Setup repositories using factory
+        const { userRepository, chatRepository, messageRepository } = RepositoryFactory_1.RepositoryFactory.createRepositories(config_1.config.STORAGE_TYPE, dbService);
         // Setup domain services
         const jwtService = new JwtService_1.JwtService();
         const eventEmitter = DomainEventEmitter_1.DomainEventEmitter.getInstance();
         // Setup application services
         const authService = new AuthService_1.AuthService(userRepository, jwtService);
         const chatService = new ChatService_1.ChatService(chatRepository, messageRepository, eventEmitter);
-        const aiService = new AIService_1.AIService(chatRepository, messageRepository, eventEmitter);
         // Setup controllers
         const authController = new AuthController_1.AuthController(authService);
         const chatController = new ChatController_1.ChatController(chatService);
@@ -52,17 +55,23 @@ async function bootstrap() {
         // Create HTTP server
         const server = (0, http_1.createServer)(app);
         // Setup WebSockets
-        const wsManager = new WebSocketManager_1.WebSocketManager(server, userRepository, env_1.env.JWT_SECRET);
+        const wsManager = new WebSocketManager_1.WebSocketManager(server, userRepository, config_1.config.JWT_SECRET);
+        // Initialize AI Service
+        const aiService = new AIService_1.AIService(chatRepository, messageRepository, eventEmitter, config_1.config, wsManager);
+        // Register WebSocket handlers
         (0, registerHandlers_1.registerWebSocketHandlers)(wsManager, chatService, aiService);
         // Start server
-        server.listen(env_1.env.PORT, () => {
-            logger_1.logger.info(`Server is running on port ${env_1.env.PORT} in ${env_1.env.NODE_ENV} mode`);
+        server.listen(config_1.config.STREAM_DOCTOR_PORT, () => {
+            logger_1.logger.info(`Server is running on port ${config_1.config.STREAM_DOCTOR_PORT} in ${config_1.config.NODE_ENV} mode`);
+            logger_1.logger.info(`Storage type: ${config_1.config.STORAGE_TYPE}`);
         });
         // Handle shutdown
         const shutdown = async () => {
             logger_1.logger.info('Shutting down gracefully...');
             server.close();
-            await dbService.disconnect();
+            if (dbService) {
+                await dbService.disconnect();
+            }
             process.exit(0);
         };
         process.on('SIGINT', shutdown);

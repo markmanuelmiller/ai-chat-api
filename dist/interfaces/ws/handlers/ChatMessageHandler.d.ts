@@ -7,5 +7,6 @@ export declare class ChatMessageHandler implements WebSocketMessageHandler {
     handle(client: AuthenticatedClient, payload: {
         chatId: string;
         message: string;
+        stream?: boolean;
     }, manager: WebSocketManager): Promise<void>;
 }

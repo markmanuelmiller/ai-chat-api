@@ -1,8 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DatabaseService = void 0;
 const pg_1 = require("pg");
 const logger_1 = require("@/utils/logger");
+const knex_1 = __importDefault(require("knex"));
+const knexfile_1 = __importDefault(require("./knexfile"));
 class DatabaseService {
     constructor() {
         this.pool = new pg_1.Pool({
@@ -19,12 +24,17 @@ class DatabaseService {
             logger_1.logger.error('Unexpected error on idle client', err);
             process.exit(-1);
         });
+        // Initialize Knex instance
+        this.knexInstance = (0, knex_1.default)(knexfile_1.default);
     }
     static getInstance() {
         if (!DatabaseService.instance) {
             DatabaseService.instance = new DatabaseService();
         }
         return DatabaseService.instance;
+    }
+    getKnex() {
+        return this.knexInstance;
     }
     async query(text, params) {
         const start = Date.now();
@@ -56,54 +66,37 @@ class DatabaseService {
         return client;
     }
     async disconnect() {
+        await this.knexInstance.destroy();
         await this.pool.end();
     }
-    async initTables() {
-        const client = await this.getClient();
+    async runMigrations() {
         try {
-            await client.query('BEGIN');
-            // Users table
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id UUID PRIMARY KEY,
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255) NOT NULL,
-          name VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-            // Chats table
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS chats (
-          id UUID PRIMARY KEY,
-          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          title VARCHAR(255) NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-            // Messages table
-            await client.query(`
-        CREATE TABLE IF NOT EXISTS messages (
-          id UUID PRIMARY KEY,
-          chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-          role VARCHAR(50) NOT NULL,
-          content TEXT NOT NULL,
-          created_at TIMESTAMP NOT NULL,
-          updated_at TIMESTAMP NOT NULL
-        )
-      `);
-            await client.query('COMMIT');
-            logger_1.logger.info('Database tables initialized successfully');
+            await this.knexInstance.migrate.latest();
+            logger_1.logger.info('Database migrations completed successfully');
         }
-        catch (e) {
-            await client.query('ROLLBACK');
-            logger_1.logger.error('Error initializing database tables', e);
-            throw e;
+        catch (error) {
+            logger_1.logger.error('Error running database migrations', error);
+            throw error;
         }
-        finally {
-            client.release();
+    }
+    async rollbackMigrations() {
+        try {
+            await this.knexInstance.migrate.rollback();
+            logger_1.logger.info('Database migrations rolled back successfully');
+        }
+        catch (error) {
+            logger_1.logger.error('Error rolling back database migrations', error);
+            throw error;
+        }
+    }
+    async runSeeds() {
+        try {
+            await this.knexInstance.seed.run();
+            logger_1.logger.info('Database seed data applied successfully');
+        }
+        catch (error) {
+            logger_1.logger.error('Error seeding database', error);
+            throw error;
         }
     }
 }

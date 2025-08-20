@@ -1,6 +1,7 @@
 export declare const env: {
     NODE_ENV: string;
-    PORT: number;
+    STREAM_DOCTOR_PORT: number;
+    STORAGE_TYPE: string;
     DB_HOST: string;
     DB_PORT: number;
     DB_USER: string;
@@ -8,4 +9,7 @@ export declare const env: {
     DB_NAME: string;
     JWT_SECRET: string;
     JWT_EXPIRES_IN: string;
+    ANTHROPIC_API_KEY: string;
+    OPENAI_API_KEY: string;
+    LANGGRAPH_API_KEY: string;
 };
