@@ -1,3 +1,4 @@
+import 'module-alias/register';
 import 'dotenv/config';
 import { createServer } from 'http';
 import { config } from '@/config/config';
@@ -81,8 +82,8 @@ async function bootstrap() {
     registerWebSocketHandlers(wsManager, chatService, aiService);
 
     // Start server
-    server.listen(config.PORT, () => {
-      logger.info(`Server is running on port ${config.PORT} in ${config.NODE_ENV} mode`);
+    server.listen(config.STREAM_DOCTOR_PORT, () => {
+      logger.info(`Server is running on port ${config.STREAM_DOCTOR_PORT} in ${config.NODE_ENV} mode`);
       logger.info(`Storage type: ${config.STORAGE_TYPE}`);
     });
 

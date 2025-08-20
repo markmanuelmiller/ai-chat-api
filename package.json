@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "AI Chat API with WebSockets and LangChain integration",
   "main": "dist/index.js",
+  "_moduleAliases": {
+    "@": "dist"
+  },
   "scripts": {
-    "start": "node dist/index.js",
+    "start": "node -r tsconfig-paths/register dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint . --ext .ts",
