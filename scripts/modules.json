@@ -1,0 +1,7 @@
+{
+  "mediasoup": "handles ingress and egress WebRTC streams",
+  "nginx": "handles ingress and egress RTMP and HLS streams",
+  "decoder": "decodes encoded streams and writes raw media data to shared memory",
+  "encoder": "reads raw media from shared memory segments and produces encoded streams",
+  "filtergraph": "processes raw media through libav filtergraphs and outputs to shared memory"
+}

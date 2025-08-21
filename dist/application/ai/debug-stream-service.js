@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DebugStreamService = void 0;
 const common_1 = require("@nestjs/common");
-const debug_stream_graph_1 = require("./graphs/debug-stream-graph");
+const debug_stream_graph_1 = require("@/application/ai/graphs/debug-stream-graph");
 /**
  * Service for handling log analysis using LangGraph
  */

@@ -420,6 +420,7 @@ export declare class DebugStreamGraph {
     private baseUrl;
     private jobGraph;
     private logGraph;
+    private streamDoctorGraph;
     constructor(llm: BaseChatModel, config: any);
     private buildGraph;
     /**

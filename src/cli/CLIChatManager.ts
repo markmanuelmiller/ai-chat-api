@@ -1,10 +1,19 @@
-import chalk from 'chalk';
 import { ChatService } from '@/application/services/ChatService';
 import { AIService } from '@/application/services/AIService';
 import { CLIMenuManager } from './CLIMenuManager';
 import { CLIInputManager } from './CLIInputManager';
 import { MessageRole } from '@/domain/entities/Message';
 import { logger } from '@/utils/logger';
+
+// Dynamic import for chalk ES module
+let chalk: any;
+
+async function getChalk() {
+  if (!chalk) {
+    chalk = await import('chalk');
+  }
+  return chalk.default || chalk;
+}
 
 export class CLIChatManager {
   constructor(
@@ -17,18 +26,19 @@ export class CLIChatManager {
   async startChatSession(chatId: string, chatTitle: string): Promise<void> {
     try {
       console.clear();
-      this.menuManager.displayWelcomeMessage(chatTitle);
+      await this.menuManager.displayWelcomeMessage(chatTitle);
       
       // Load and display chat history
       const messages = await this.chatService.getMessages(chatId);
-      this.menuManager.displayChatHistory(messages);
+      await this.menuManager.displayChatHistory(messages);
       
       // Start the chat loop
       await this.chatLoop(chatId, chatTitle);
       
     } catch (error) {
       logger.error('Error starting chat session:', error);
-      console.log(chalk.red('Error starting chat session. Please try again.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.red('Error starting chat session. Please try again.'));
     }
   }
 
@@ -49,7 +59,8 @@ export class CLIChatManager {
         // Validate the message
         const validation = this.inputManager.validateMessageInput(userInput);
         if (!validation.isValid) {
-          console.log(chalk.red(`Error: ${validation.error}`));
+          const chalkInstance = await getChalk();
+          console.log(chalkInstance.red(`Error: ${validation.error}`));
           continue;
         }
 
@@ -58,27 +69,29 @@ export class CLIChatManager {
         
       } catch (error) {
         logger.error('Error in chat loop:', error);
-        console.log(chalk.red('An error occurred. Please try again.'));
+        const chalkInstance = await getChalk();
+        console.log(chalkInstance.red('An error occurred. Please try again.'));
       }
     }
   }
 
   private async handleCommand(command: string, chatId: string, chatTitle: string): Promise<boolean> {
     const { command: cmd, args } = this.inputManager.parseCommand(command);
+    const chalkInstance = await getChalk();
     
     switch (cmd) {
       case 'help':
-        this.menuManager.displayHelp();
+        await this.menuManager.displayHelp();
         return true;
         
       case 'exit':
-        console.log(chalk.yellow('👋 Exiting chat and returning to main menu...'));
-        console.log(chalk.gray('─'.repeat(80)));
+        console.log(chalkInstance.yellow('👋 Exiting chat and returning to main menu...'));
+        console.log(chalkInstance.gray('─'.repeat(80)));
         return false;
         
       case 'clear':
         console.clear();
-        this.menuManager.displayWelcomeMessage(chatTitle);
+        await this.menuManager.displayWelcomeMessage(chatTitle);
         return true;
         
       case 'history':
@@ -95,42 +108,45 @@ export class CLIChatManager {
         );
         if (shouldDelete) {
           await this.chatService.deleteChat(chatId);
-          console.log(chalk.green('Chat deleted successfully.'));
+          console.log(chalkInstance.green('Chat deleted successfully.'));
           return false;
         }
         return true;
         
       default:
-        console.log(chalk.red(`Unknown command: ${cmd}. Type /help for available commands.`));
+        console.log(chalkInstance.red(`Unknown command: ${cmd}. Type /help for available commands.`));
         return true;
     }
   }
 
   private async processUserMessage(chatId: string, userMessage: string): Promise<void> {
     try {
-      console.log(chalk.gray('🤖 AI is thinking...'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.gray('🤖 AI is thinking...'));
       
       // Generate AI response
       const aiResponse = await this.aiService.generateResponse(chatId, userMessage);
       
       // Display the response
-      console.log(chalk.magenta('🤖 AI:'));
-      console.log(chalk.magenta(aiResponse.content));
-      console.log(chalk.gray('─'.repeat(80)));
+      console.log(chalkInstance.magenta('🤖 AI:'));
+      console.log(chalkInstance.magenta(aiResponse.content));
+      console.log(chalkInstance.gray('─'.repeat(80)));
       
     } catch (error) {
       logger.error('Error processing user message:', error);
-      console.log(chalk.red('Error: Failed to get AI response. Please try again.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.red('Error: Failed to get AI response. Please try again.'));
     }
   }
 
   private async displayChatHistory(chatId: string): Promise<void> {
     try {
       const messages = await this.chatService.getMessages(chatId);
-      this.menuManager.displayChatHistory(messages);
+      await this.menuManager.displayChatHistory(messages);
     } catch (error) {
       logger.error('Error displaying chat history:', error);
-      console.log(chalk.red('Error: Failed to load chat history.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.red('Error: Failed to load chat history.'));
     }
   }
 
@@ -140,11 +156,13 @@ export class CLIChatManager {
       
       if (newTitle !== currentTitle) {
         await this.chatService.updateChatTitle(chatId, newTitle);
-        console.log(chalk.green(`Chat renamed to: "${newTitle}"`));
+        const chalkInstance = await getChalk();
+        console.log(chalkInstance.green(`Chat renamed to: "${newTitle}"`));
       }
     } catch (error) {
       logger.error('Error renaming chat:', error);
-      console.log(chalk.red('Error: Failed to rename chat.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.red('Error: Failed to rename chat.'));
     }
   }
 
@@ -153,7 +171,8 @@ export class CLIChatManager {
       const chatTitle = `Chat-${Date.now()}`;
       const chat = await this.chatService.createChat(userId, chatTitle);
       
-      console.log(chalk.green(`Created new chat: "${chatTitle}"`));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.green(`Created new chat: "${chatTitle}"`));
       return chat.id;
     } catch (error) {
       logger.error('Error creating new chat:', error);
@@ -182,7 +201,8 @@ export class CLIChatManager {
   async deleteChat(chatId: string): Promise<void> {
     try {
       await this.chatService.deleteChat(chatId);
-      console.log(chalk.green('Chat deleted successfully.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.green('Chat deleted successfully.'));
     } catch (error) {
       logger.error('Error deleting chat:', error);
       throw error;

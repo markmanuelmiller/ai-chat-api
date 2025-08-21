@@ -1,8 +1,24 @@
-import inquirer from 'inquirer';
-import chalk from 'chalk';
 import { Chat } from '@/domain/entities/Chat';
 import { MainMenuOption, ChatMenuOption } from './types';
 import { logger } from '@/utils/logger';
+
+// Dynamic imports for ES modules
+let inquirer: any;
+let chalk: any;
+
+async function getInquirer() {
+  if (!inquirer) {
+    inquirer = await import('inquirer');
+  }
+  return inquirer.default || inquirer;
+}
+
+async function getChalk() {
+  if (!chalk) {
+    chalk = await import('chalk');
+  }
+  return chalk.default || chalk;
+}
 
 export class CLIMenuManager {
   private mainMenuOptions: MainMenuOption[] = [
@@ -25,9 +41,10 @@ export class CLIMenuManager {
 
   async showMainMenu(): Promise<string> {
     console.clear();
-    this.displayHeader();
+    await this.displayHeader();
     
-    const { choice } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { choice } = await inq.prompt([
       {
         type: 'list',
         name: 'choice',
@@ -44,10 +61,11 @@ export class CLIMenuManager {
 
   async showExistingChatsMenu(chats: Chat[]): Promise<string> {
     console.clear();
-    this.displayHeader();
+    await this.displayHeader();
     
     if (chats.length === 0) {
-      console.log(chalk.yellow('No existing chats found.'));
+      const chalkInstance = await getChalk();
+      console.log(chalkInstance.yellow('No existing chats found.'));
       await this.pressAnyKeyToContinue();
       return 'back';
     }
@@ -60,19 +78,20 @@ export class CLIMenuManager {
       lastMessageAt: chat.updatedAt
     }));
 
+    const inq = await getInquirer();
     const choices = [
       ...chatOptions.map(option => ({
         name: option.name,
         value: option.value
       })),
-      new inquirer.Separator(),
+      new inq.Separator(),
       {
         name: '⬅️  Back to Main Menu',
         value: 'back'
       }
     ];
 
-    const { choice } = await inquirer.prompt([
+    const { choice } = await inq.prompt([
       {
         type: 'list',
         name: 'choice',
@@ -85,7 +104,8 @@ export class CLIMenuManager {
   }
 
   async showChatActionsMenu(chatId: string, chatTitle: string): Promise<string> {
-    const { action } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { action } = await inq.prompt([
       {
         type: 'list',
         name: 'action',
@@ -103,7 +123,7 @@ export class CLIMenuManager {
             name: '🗑️  Delete Chat',
             value: 'delete_chat'
           },
-          new inquirer.Separator(),
+          new inq.Separator(),
           {
             name: '⬅️  Back',
             value: 'back'
@@ -116,7 +136,8 @@ export class CLIMenuManager {
   }
 
   async confirmDeleteChat(chatTitle: string): Promise<boolean> {
-    const { confirm } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { confirm } = await inq.prompt([
       {
         type: 'confirm',
         name: 'confirm',
@@ -129,7 +150,8 @@ export class CLIMenuManager {
   }
 
   async pressAnyKeyToContinue(): Promise<void> {
-    await inquirer.prompt([
+    const inq = await getInquirer();
+    await inq.prompt([
       {
         type: 'input',
         name: 'continue',
@@ -138,11 +160,12 @@ export class CLIMenuManager {
     ]);
   }
 
-  private displayHeader(): void {
-    console.log(chalk.blue.bold('╔══════════════════════════════════════════════════════════════╗'));
-    console.log(chalk.blue.bold('║                    AI Chat CLI                              ║'));
-    console.log(chalk.blue.bold('║              Powered by LangGraph                           ║'));
-    console.log(chalk.blue.bold('╚══════════════════════════════════════════════════════════════╝'));
+  private async displayHeader(): Promise<void> {
+    const chalkInstance = await getChalk();
+    console.log(chalkInstance.blue.bold('╔══════════════════════════════════════════════════════════════╗'));
+    console.log(chalkInstance.blue.bold('║                    AI Chat CLI                              ║'));
+    console.log(chalkInstance.blue.bold('║              Powered by LangGraph                           ║'));
+    console.log(chalkInstance.blue.bold('╚══════════════════════════════════════════════════════════════╝'));
     console.log('');
   }
 
@@ -160,44 +183,47 @@ export class CLIMenuManager {
     }
   }
 
-  displayChatHistory(messages: any[]): void {
-    console.log(chalk.green.bold('\n📜 Chat History:'));
-    console.log(chalk.gray('─'.repeat(80)));
+  async displayChatHistory(messages: any[]): Promise<void> {
+    const chalkInstance = await getChalk();
+    console.log(chalkInstance.green.bold('\n📜 Chat History:'));
+    console.log(chalkInstance.gray('─'.repeat(80)));
     
     if (messages.length === 0) {
-      console.log(chalk.yellow('No messages yet. Start the conversation!'));
+      console.log(chalkInstance.yellow('No messages yet. Start the conversation!'));
       return;
     }
 
     messages.forEach(message => {
       const timestamp = this.formatDate(message.createdAt);
       const role = message.role === 'user' ? '👤 You' : '🤖 AI';
-      const color = message.role === 'user' ? chalk.cyan : chalk.magenta;
+      const color = message.role === 'user' ? chalkInstance.cyan : chalkInstance.magenta;
       
-      console.log(chalk.gray(`[${timestamp}] ${role}:`));
+      console.log(chalkInstance.gray(`[${timestamp}] ${role}:`));
       console.log(color(message.content));
-      console.log(chalk.gray('─'.repeat(80)));
+      console.log(chalkInstance.gray('─'.repeat(80)));
     });
   }
 
-  displayWelcomeMessage(chatTitle: string): void {
-    console.log(chalk.green.bold(`\n🎉 Welcome to "${chatTitle}"!`));
-    console.log(chalk.gray('Type your message below or use commands:'));
-    console.log(chalk.cyan('  /exit') + chalk.gray(' - Exit this chat and return to main menu'));
-    console.log(chalk.cyan('  /help') + chalk.gray(' - Show all available commands'));
-    console.log(chalk.gray('─'.repeat(80)));
+  async displayWelcomeMessage(chatTitle: string): Promise<void> {
+    const chalkInstance = await getChalk();
+    console.log(chalkInstance.green.bold(`\n🎉 Welcome to "${chatTitle}"!`));
+    console.log(chalkInstance.gray('Type your message below or use commands:'));
+    console.log(chalkInstance.cyan('  /exit') + chalkInstance.gray(' - Exit this chat and return to main menu'));
+    console.log(chalkInstance.cyan('  /help') + chalkInstance.gray(' - Show all available commands'));
+    console.log(chalkInstance.gray('─'.repeat(80)));
   }
 
-  displayHelp(): void {
-    console.log(chalk.yellow.bold('\n📖 Available Commands:'));
-    console.log(chalk.gray('─'.repeat(50)));
-    console.log(chalk.cyan('/exit') + ' - ' + chalk.green('Exit this chat and return to main menu'));
-    console.log(chalk.cyan('/help') + ' - Show this help message');
-    console.log(chalk.cyan('/clear') + ' - Clear the chat history display');
-    console.log(chalk.cyan('/history') + ' - Show chat history');
-    console.log(chalk.cyan('/rename') + ' - Rename the current chat');
-    console.log(chalk.cyan('/delete') + ' - Delete the current chat');
-    console.log(chalk.gray('─'.repeat(50)));
-    console.log(chalk.yellow('💡 Tip: Type /exit anytime to return to the main menu!'));
+  async displayHelp(): Promise<void> {
+    const chalkInstance = await getChalk();
+    console.log(chalkInstance.yellow.bold('\n📖 Available Commands:'));
+    console.log(chalkInstance.gray('─'.repeat(50)));
+    console.log(chalkInstance.cyan('/exit') + ' - ' + chalkInstance.green('Exit this chat and return to main menu'));
+    console.log(chalkInstance.cyan('/help') + ' - Show this help message');
+    console.log(chalkInstance.cyan('/clear') + ' - Clear the chat history display');
+    console.log(chalkInstance.cyan('/history') + ' - Show chat history');
+    console.log(chalkInstance.cyan('/rename') + ' - Rename the current chat');
+    console.log(chalkInstance.cyan('/delete') + ' - Delete the current chat');
+    console.log(chalkInstance.gray('─'.repeat(50)));
+    console.log(chalkInstance.yellow('💡 Tip: Type /exit anytime to return to the main menu!'));
   }
 }
