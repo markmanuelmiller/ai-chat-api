@@ -1,14 +1,23 @@
 import { StateGraph, Annotation } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { z } from 'zod';
 import axios from 'axios';
 import { JobGraph } from './job-graph';
 import { LogGraph } from './log-graph';
+import { StreamDoctorGraph } from './stream-doctor-graph';
 
 interface StreamStatusResponse {
   status: string;
   error?: string;
   errorDescription?: string;
 }
+
+// Zod schema for intent validation
+const IntentSchema = z.object({
+  intent: z.enum(['test stream', 'debug stream', 'other']).describe('The detected intent from the user message')
+});
+
+const INTENT_PROMPT = `Classify the intent as one of the following: ${IntentSchema.shape.intent._def.values.map(opt => `"${opt}"`).join(', ')}.`;
 
 // Graph state
 export const DebugParamsAnnotation = Annotation.Root({
@@ -68,6 +77,7 @@ export class DebugStreamGraph {
   private baseUrl: string;
   private jobGraph: JobGraph;
   private logGraph: LogGraph;
+  private streamDoctorGraph: StreamDoctorGraph;
   
   constructor(
     llm: BaseChatModel, 
@@ -77,6 +87,7 @@ export class DebugStreamGraph {
     this.baseUrl = config.mockServerUrl;
     this.jobGraph = new JobGraph(llm, config);
     this.logGraph = new LogGraph(llm, config);
+    this.streamDoctorGraph = new StreamDoctorGraph(llm);
     this.graph = this.buildGraph();
   }
   
@@ -99,14 +110,20 @@ export class DebugStreamGraph {
     const determineIntentNode = async (state: typeof StateAnnotation.State) => {
       // Include chat history in the prompt for better context
       const chatContext = state.chatHistory.slice(-3).join('\n');
-      const msg = await this.llm.invoke(
+      
+      // Use structured output with Zod schema
+      const structuredLLM = this.llm.withStructuredOutput(IntentSchema);
+      
+      const result = await structuredLLM.invoke(
         `Given the following chat history:
         ${chatContext}
         
         Determine the intent of the most recent message: ${state.message}. 
-        Respond only with one of the following: "debug_stream", "other".`);
+        ${INTENT_PROMPT}`);
 
-      state.intent = msg.content.toString();
+      state.intent = result.intent;
+
+      console.log('INTENT', state.intent);
       return state;
     }
 
@@ -130,8 +147,11 @@ export class DebugStreamGraph {
       }
     }
 
-    const debugStreamRouter = (state: typeof StateAnnotation.State) => 
-      state.intent === "debug_stream" ? "Pass" : "Fail";
+    const debugStreamRouter = (state: typeof StateAnnotation.State) => {
+      if (state.intent.includes("test")) return "Test";
+      if (state.intent.includes("debug")) return "Debug";
+      return "Fail";
+    };
 
     const streamNameNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(
@@ -143,6 +163,41 @@ export class DebugStreamGraph {
           jobId: "123"
         }
       };
+    }
+
+    const streamDoctorNode = async (state: typeof StateAnnotation.State) => {
+      try {
+        // Convert the debug stream state to stream doctor state format
+        const streamDoctorState = {
+          input: state.message,
+          chatId: state.chatId,
+          streamName: state.streamName,
+          conversationHistory: (state.chatHistory || []).map(msg => ({ role: 'user', content: msg })),
+          toolsHistory: [],
+          sessionId: state.chatId, // Use chatId as sessionId
+        };
+
+        console.log('StreamDoctorNode - calling StreamDoctorGraph with state:', streamDoctorState);
+        
+        // Execute the Stream Doctor Graph
+        const result = await this.streamDoctorGraph.invoke(streamDoctorState);
+        
+        console.log('StreamDoctorNode - StreamDoctorGraph result:', result);
+        
+        return {
+          finalReport: result.finalResult || `Stream Doctor analysis completed for ${state.streamName}`,
+          streamingMessages: result.streamingMessages || [`Stream Doctor analysis completed for ${state.streamName}`],
+          error: result.error || undefined
+        };
+      } catch (error) {
+        console.error('StreamDoctorNode - Error:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return {
+          finalReport: `Stream Doctor analysis failed for ${state.streamName}: ${errorMessage}`,
+          streamingMessages: [`Error during Stream Doctor analysis: ${errorMessage}`],
+          error: errorMessage
+        };
+      }
     }
 
     const processSubgraphsNode = async (state: typeof StateAnnotation.State) => {
@@ -190,19 +245,22 @@ export class DebugStreamGraph {
       .addNode("intakeMessageNode", intakeMessageNode)
       .addNode("determineIntentNode", determineIntentNode)
       .addNode("streamNameNode", streamNameNode)
+      .addNode("streamDoctorNode", streamDoctorNode)
       .addNode("streamDebugDataCollectorNode", streamDebugDataCollectorNode)
       .addNode("processSubgraphsNode", processSubgraphsNode)
       .addNode("generateFinalReportNode", generateFinalReportNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
       .addConditionalEdges("determineIntentNode", debugStreamRouter, {
-        Pass: "streamNameNode",
+        Test: "streamNameNode",
+        Debug: "streamDoctorNode", 
         Fail: "__end__"
       })
       .addEdge("streamNameNode", "streamDebugDataCollectorNode")
       .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
       .addEdge("processSubgraphsNode", "generateFinalReportNode")
       .addEdge("generateFinalReportNode", "__end__")
+      .addEdge("streamDoctorNode", "__end__")
       .compile();
 
     return chain;
@@ -238,4 +296,4 @@ export async function createGraph(dependencies: {
   baseUrl: string 
 }) {
   return new DebugStreamGraph(dependencies.llm, dependencies);
-} 
+}

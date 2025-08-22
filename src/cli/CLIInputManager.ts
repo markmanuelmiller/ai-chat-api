@@ -1,10 +1,27 @@
-import inquirer from 'inquirer';
-import chalk from 'chalk';
 import { logger } from '@/utils/logger';
+
+// Dynamic imports for ES modules
+let inquirer: any;
+let chalk: any;
+
+async function getInquirer() {
+  if (!inquirer) {
+    inquirer = await import('inquirer');
+  }
+  return inquirer.default || inquirer;
+}
+
+async function getChalk() {
+  if (!chalk) {
+    chalk = await import('chalk');
+  }
+  return chalk.default || chalk;
+}
 
 export class CLIInputManager {
   async promptForChatTitle(): Promise<string> {
-    const { title } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { title } = await inq.prompt([
       {
         type: 'input',
         name: 'title',
@@ -26,11 +43,13 @@ export class CLIInputManager {
   }
 
   async promptForMessage(): Promise<string> {
-    const { message } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const chalkInstance = await getChalk();
+    const { message } = await inq.prompt([
       {
         type: 'input',
         name: 'message',
-        message: chalk.cyan('👤 You:') + chalk.gray(' (type /exit to return to main menu)'),
+        message: chalkInstance.cyan('👤 You:') + chalkInstance.gray(' (type /exit to return to main menu)'),
         validate: (input: string) => {
           if (!input.trim()) {
             return 'Message cannot be empty';
@@ -44,7 +63,8 @@ export class CLIInputManager {
   }
 
   async promptForNewChatTitle(currentTitle: string): Promise<string> {
-    const { title } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { title } = await inq.prompt([
       {
         type: 'input',
         name: 'title',
@@ -66,7 +86,8 @@ export class CLIInputManager {
   }
 
   async promptForConfirmation(message: string, defaultValue: boolean = false): Promise<boolean> {
-    const { confirm } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { confirm } = await inq.prompt([
       {
         type: 'confirm',
         name: 'confirm',
@@ -79,7 +100,8 @@ export class CLIInputManager {
   }
 
   async promptForChoice(message: string, choices: string[]): Promise<string> {
-    const { choice } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { choice } = await inq.prompt([
       {
         type: 'list',
         name: 'choice',
@@ -92,7 +114,8 @@ export class CLIInputManager {
   }
 
   async promptForPassword(message: string = 'Enter password:'): Promise<string> {
-    const { password } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { password } = await inq.prompt([
       {
         type: 'password',
         name: 'password',
@@ -114,7 +137,8 @@ export class CLIInputManager {
   }
 
   async promptForEmail(): Promise<string> {
-    const { email } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { email } = await inq.prompt([
       {
         type: 'input',
         name: 'email',
@@ -133,7 +157,8 @@ export class CLIInputManager {
   }
 
   async promptForUsername(): Promise<string> {
-    const { username } = await inquirer.prompt([
+    const inq = await getInquirer();
+    const { username } = await inq.prompt([
       {
         type: 'input',
         name: 'username',
@@ -157,7 +182,8 @@ export class CLIInputManager {
   }
 
   async waitForEnter(message: string = 'Press Enter to continue...'): Promise<void> {
-    await inquirer.prompt([
+    const inq = await getInquirer();
+    await inq.prompt([
       {
         type: 'input',
         name: 'continue',

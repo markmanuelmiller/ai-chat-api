@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { DebugStreamGraph } from './graphs/debug-stream-graph';
+import { DebugStreamGraph } from '@/application/ai/graphs/debug-stream-graph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { StateAnnotation } from './graphs/debug-stream-graph';
-import { StreamingMessageQueue, StreamableMessage } from '@/core/StreamingMessageQueue';
+import { StateAnnotation } from '@/application/ai/graphs/debug-stream-graph';
+import { StreamingMessageQueue } from '@/core/StreamingMessageQueue';
 
 /**
  * Service for handling log analysis using LangGraph
