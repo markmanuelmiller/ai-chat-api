@@ -135,3 +135,46 @@ These scripts are integrated into the AI Chat API through the Stream Doctor Grap
 4. **Record Type Selection**: Automatic selection of relevant record types based on user queries
 
 The Stream Doctor Graph routes user queries through these scripts to provide comprehensive analysis of streaming system logs.
+
+## Local Development with Mock Logs
+
+For local development and testing, you can use mock binary log data instead of real production logs.
+
+### Setup
+
+1. **Create Mock Logs Directory**: The project includes a `mock-logs/` directory structure:
+   ```
+   mock-logs/
+   └── binlog/
+       ├── active/     # Active binary logs
+       └── done/       # Completed binary logs
+   ```
+
+2. **Add Sample Data**: Place sample binary log files in the appropriate directories:
+   ```bash
+   # Add sample files for testing
+   cp your_sample_logs/*.bin mock-logs/binlog/active/
+   cp your_completed_logs/*.bin mock-logs/binlog/done/
+   ```
+
+3. **Docker Configuration**: The docker-compose.yml automatically mounts the mock logs:
+   ```yaml
+   volumes:
+     - ${LOCAL_LOGS_PATH:-./mock-logs}:/var/log/foundation
+   ```
+
+4. **Environment Variable**: Set the path to your local logs directory:
+   ```bash
+   # In your .env file
+   LOCAL_LOGS_PATH=./mock-logs
+   ```
+
+### Usage
+
+When running the application with Docker, the mock logs will be available at `/var/log/foundation/binlog/` inside the container, and the Stream Doctor Graph will be able to analyze them just like real production logs.
+
+### Sample Data
+
+The `mock-logs/` directory includes sample files to test the directory structure. Replace these with actual binary log files for more realistic testing.
+
+**Note**: The mock-logs directory is excluded from version control to prevent committing test data. Only the directory structure is preserved with `.gitkeep` files.

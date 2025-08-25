@@ -13,9 +13,11 @@ services:
       - STORAGE_TYPE=memory
       - JWT_SECRET=your_jwt_secret
       - JWT_EXPIRES_IN=1d
+      - LOCAL_LOGS_PATH=./mock-logs
     volumes:
       - ./:/app
       - /app/node_modules
+      - ${LOCAL_LOGS_PATH:-./mock-logs}:/var/log/foundation
     command: npm run dev
     networks:
       - ai-chat-network

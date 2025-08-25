@@ -3,3 +3,9 @@ node_modules
 
 # LangGraph API
 .langgraph_api
+
+# Mock logs for development
+mock-logs/binlog/active/*
+mock-logs/binlog/done/*
+!mock-logs/binlog/active/.gitkeep
+!mock-logs/binlog/done/.gitkeep

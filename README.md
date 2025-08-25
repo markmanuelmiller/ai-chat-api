@@ -1,95 +1,102 @@
 # AI Chat API
 
-A TypeScript Node.js server for AI chat applications with WebSockets and LangChain integration.
-
-## Start
-
-```bash
-# if first time, run
-npm install
-
-# copy .env.example to .env and update X_API_KEY values
-cp .env.example .env
-
-# run the containers
-npm run docker-with-client:up
-npm run migrate
-npm run seed
-
-# go to localhost:3002 in browser to see the client and try chatting "can you help me troubleshoot stream abc123?"
-
-# if changes to src were made, run
-npm run docker:down
-npm run docker-with-client:up:build
-
-# if you want to stop the containers, run
-npm run docker:down
-```
+A Node.js/TypeScript API for AI-powered chat functionality with WebSocket support, LangChain integration, and PostgreSQL database.
 
 ## Features
 
-- TypeScript Node.js server with hot reloading for development
-- Express REST API with JWT authentication
-- WebSockets support using the `ws` package for real-time communication
-- PostgreSQL database integration
-- Clean architecture following SOLID principles
-- Domain-Driven Design (DDD) structure
-- CQRS pattern with event emitters
-- Strategy pattern for WebSocket message handling
-- Type-safe events with strong typing
-- LangChain and LangGraph integration for AI assistants
-- Tests using Jest for unit and integration testing
+- **AI Chat**: Interactive chat with AI using LangChain and LangGraph
+- **WebSocket Support**: Real-time communication
+- **Authentication**: JWT-based authentication
+- **Database**: PostgreSQL with Knex.js ORM
+- **Stream Doctor**: Advanced log analysis for video streaming systems
+- **Docker Support**: Containerized deployment
+- **CLI Interface**: Command-line interface for testing
 
-## Project Structure
+## Prerequisites
 
-```
-src/
-├── api/               # REST API routes and controllers
-├── application/       # Application services and use cases
-├── config/            # Configuration settings
-├── core/              # Core application logic
-├── domain/            # Domain entities, events and repositories
-├── infra/             # Infrastructure implementations
-├── interfaces/        # Interface adapters (WebSockets)
-├── tests/             # Unit and integration tests
-└── utils/             # Utility functions
+- Node.js 18+
+- PostgreSQL (optional, can use in-memory storage)
+- Docker and Docker Compose (for containerized deployment)
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd ai-chat-api
 ```
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js 16+
-- PostgreSQL
-
-### Installation
-
-1. Clone the repository
 2. Install dependencies:
-
 ```bash
 npm install
 ```
 
-3. Set up environment variables by copying `.env.example` to `.env` and updating the values:
-
+3. Set up environment variables:
 ```bash
 cp .env.example .env
+# Edit .env with your configuration
 ```
 
-4. Create a PostgreSQL database:
-
-```sql
-CREATE DATABASE ai_chat;
-```
-
-5. Run migrations to set up the database schema:
-
+4. Start the development server:
 ```bash
-npm run migrate
+npm run dev
 ```
 
-### Database Migrations
+## Docker Development
+
+### Quick Start with Docker
+
+1. **Build and start the services**:
+```bash
+docker-compose up -d --build
+```
+
+2. **Access the API**:
+- API: http://localhost:3001
+- Mock Server: http://localhost:3003
+
+### Mock Logs for Development
+
+The application includes support for local mock binary logs for testing the Stream Doctor functionality:
+
+1. **Setup Mock Logs**:
+```bash
+# The mock-logs directory is already created with the proper structure
+ls -la mock-logs/binlog/
+# active/  done/
+```
+
+2. **Add Sample Data**:
+```bash
+# Copy your binary log files to the mock directories
+cp your_logs/*.bin mock-logs/binlog/active/
+cp your_completed_logs/*.bin mock-logs/binlog/done/
+```
+
+3. **Configure Environment**:
+```bash
+# In your .env file
+LOCAL_LOGS_PATH=./mock-logs
+```
+
+4. **Run with Docker**:
+```bash
+docker-compose up -d
+```
+
+The mock logs will be mounted to `/var/log/foundation` inside the container, allowing the Stream Doctor Graph to analyze them just like real production logs.
+
+### Environment Variables
+
+Key environment variables for Docker development:
+
+- `LOCAL_LOGS_PATH`: Path to local mock logs directory (default: `./mock-logs`)
+- `STORAGE_TYPE`: Database type (`memory` or `postgres`)
+- `PORT`: API server port (default: `3001`)
+
+## Database
+
+### Migrations
 
 The project uses Knex.js for managing database migrations.
 
