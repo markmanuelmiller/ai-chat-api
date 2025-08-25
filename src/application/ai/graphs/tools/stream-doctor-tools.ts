@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '@/utils/logger';
 
 // Get the scripts directory path
 const getScriptsPath = () => {
@@ -18,12 +19,26 @@ export const listStatsFiles = tool(
     const scriptsPath = getScriptsPath();
     const scriptPath = path.join(scriptsPath, 'list_binlogs.sh');
     
-    const args: string[] = [];
-    if (m !== undefined) args.push('-m', String(m));
-    if (c !== undefined) args.push('-c', String(c));
-    if (n) args.push('-n', n);
+    // Debug: Log working directory and script path
+    logger.info('Current working directory:', process.cwd());
+    logger.info('Scripts path:', scriptsPath);
+    logger.info('Full script path:', scriptPath);
+    logger.info('Script exists:', fs.existsSync(scriptPath));
     
-    return execFileSync(scriptPath, args, { encoding: 'utf8' });
+    const args: string[] = [];
+    // if (m !== undefined) args.push('-m', String(m));
+    // if (c !== undefined) args.push('-c', String(c));
+    // if (n) args.push('-n', n);
+
+    // Debug: Log arguments
+    logger.info('list_binlogs.sh Arguments xxx:', args);
+    
+    const options: any = { 
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    };
+    
+    return execFileSync(scriptPath, args, options);
   },
   {
     name: "list-stats-files",
@@ -42,10 +57,15 @@ export const convertBinaryToCsv = tool(
     const scriptsPath = getScriptsPath();
     const scriptPath = path.join(scriptsPath, 'parse_binlogs.sh');
     
-    const options: any = { encoding: 'utf8' };
+    const options: any = { 
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    };
     if (files) {
       options.input = files;
     }
+
+    logger.info('parse_binlogs.sh Arguments: xxx', options);
     
     return execFileSync(scriptPath, [], options);
   },
@@ -60,6 +80,8 @@ export const convertBinaryToCsv = tool(
   }
 );
 
+
+
 // Describe data tool
 export const describeData = tool(
   async ({ record_types, json_output }) => {
@@ -69,8 +91,15 @@ export const describeData = tool(
     const args: string[] = [];
     if (record_types) args.push('-t', record_types);
     if (json_output) args.push('-j');
+
+    logger.info('describe_records.sh Arguments:', args);
     
-    return execFileSync(scriptPath, args, { encoding: 'utf8' });
+    const options: any = { 
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    };
+    
+    return execFileSync(scriptPath, args, options);
   },
   {
     name: "describe-data",
@@ -94,8 +123,15 @@ export const processData = tool(
   async ({ command }) => {
     const scriptsPath = getScriptsPath();
     const scriptPath = path.join(scriptsPath, 'filter_csv.sh');
+
+    logger.info('filter_csv.sh Arguments:', [command]);
     
-    return execFileSync(scriptPath, [command], { encoding: 'utf8' });
+    const options: any = { 
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    };
+    
+    return execFileSync(scriptPath, [command], options);
   },
   {
     name: "process-data",

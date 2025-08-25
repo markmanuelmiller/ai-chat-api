@@ -5,9 +5,12 @@ import { z } from 'zod';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+
 import { StreamDoctorState } from '../types/stream-doctor-state';
-import { streamDoctorTools } from '../tools/stream-doctor-tools';
+import { streamDoctorTools, listStatsFiles, describeData } from '../tools/stream-doctor-tools';
 import { ToolResult } from '../types/stream-doctor-state';
+
+
 
 // Get the scripts directory path
 const getScriptsPath = () => {
@@ -301,7 +304,7 @@ export async function getData(
   let result;
 
   try {
-    const { listStatsFiles } = await import('../tools/stream-doctor-tools.js');
+
     result = await listStatsFiles.invoke(toolCall.args);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -319,7 +322,11 @@ export async function getData(
   try {
     const scriptsPath = getScriptsPath();
     const parseScriptPath = path.join(scriptsPath, 'parse_binlogs.sh');
-    result = await execFileSync(parseScriptPath, [], { encoding: 'utf8', input: result });
+    result = await execFileSync(parseScriptPath, [], { 
+      encoding: 'utf8', 
+      input: result,
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
@@ -352,7 +359,10 @@ export async function getMetaData(
   try {
     const scriptsPath = getScriptsPath();
     const describeScriptPath = path.join(scriptsPath, 'describe_records.sh');
-    result = await execFileSync(describeScriptPath, [], { encoding: 'utf8' });
+    result = await execFileSync(describeScriptPath, [], { 
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
@@ -390,7 +400,7 @@ export async function getMetaData(
   });
 
   try {
-    const { describeData } = await import('../tools/stream-doctor-tools.js');
+
     result = await describeData.invoke({
       record_types: recordTypes,
       json_output: true
@@ -438,7 +448,11 @@ export async function analyzeData(
     try {
       const scriptsPath = getScriptsPath();
       const filterScriptPath = path.join(scriptsPath, 'filter_csv.sh');
-      let result = await execFileSync(filterScriptPath, [generateAwkFilterRecordsExpression(recordTypes.split(','))], { encoding: 'utf8', input: csvData });
+      let result = await execFileSync(filterScriptPath, [generateAwkFilterRecordsExpression(recordTypes.split(','))], { 
+        encoding: 'utf8', 
+        maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+        input: csvData 
+      });
       if (result && result.trim() !== '') {
         csvData = result;
       } else {
@@ -509,7 +523,11 @@ export async function analyzeData(
     try {
       const scriptsPath = getScriptsPath();
       const filterScriptPath = path.join(scriptsPath, 'filter_csv.sh');
-      result = await execFileSync(filterScriptPath, [toolCall.args.command], { encoding: 'utf8', input: csvData });
+      result = await execFileSync(filterScriptPath, [toolCall.args.command], { 
+        encoding: 'utf8', 
+        maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+        input: csvData 
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {

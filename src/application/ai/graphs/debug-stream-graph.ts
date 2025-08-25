@@ -5,6 +5,7 @@ import axios from 'axios';
 import { JobGraph } from './job-graph';
 import { LogGraph } from './log-graph';
 import { StreamDoctorGraph } from './stream-doctor-graph';
+import { logger } from '@/utils/logger';
 
 interface StreamStatusResponse {
   status: string;
@@ -123,7 +124,7 @@ export class DebugStreamGraph {
 
       state.intent = result.intent;
 
-      console.log('INTENT', state.intent);
+      logger.info('INTENT', state.intent);
       return state;
     }
 
@@ -177,12 +178,12 @@ export class DebugStreamGraph {
           sessionId: state.chatId, // Use chatId as sessionId
         };
 
-        console.log('StreamDoctorNode - calling StreamDoctorGraph with state:', streamDoctorState);
+        logger.info('StreamDoctorNode - calling StreamDoctorGraph with state:', streamDoctorState);
         
         // Execute the Stream Doctor Graph
         const result = await this.streamDoctorGraph.invoke(streamDoctorState);
         
-        console.log('StreamDoctorNode - StreamDoctorGraph result:', result);
+        logger.info('StreamDoctorNode - StreamDoctorGraph result:', result);
         
         return {
           finalReport: result.finalResult || `Stream Doctor analysis completed for ${state.streamName}`,
@@ -190,7 +191,7 @@ export class DebugStreamGraph {
           error: result.error || undefined
         };
       } catch (error) {
-        console.error('StreamDoctorNode - Error:', error);
+        logger.error('StreamDoctorNode - Error:', error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         return {
           finalReport: `Stream Doctor analysis failed for ${state.streamName}: ${errorMessage}`,
@@ -272,9 +273,9 @@ export class DebugStreamGraph {
    * @returns The final state after graph execution
    */
   async invoke(initialState: Partial<typeof StateAnnotation.State>): Promise<typeof StateAnnotation.State> {
-    console.log('initialState from invoke', initialState);
+    logger.info('initialState from invoke', initialState);
     const result = await this.graph.invoke(initialState as typeof StateAnnotation.State);
-    console.log('result from graph from invoke', result);
+    logger.info('result from graph from invoke', result);
     return result;
   }
   
@@ -284,9 +285,9 @@ export class DebugStreamGraph {
    * @returns A stream of state updates
    */
   async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
-    console.log('initialState from stream', initialState);
+    logger.info('initialState from stream', initialState);
     const result = await this.graph.stream(initialState as typeof StateAnnotation.State);
-    console.log('result from graph from stream', result);
+    logger.info('result from graph from stream', result);
     return result;
   }
 }
