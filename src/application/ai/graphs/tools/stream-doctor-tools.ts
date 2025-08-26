@@ -13,9 +13,30 @@ const getScriptsPath = () => {
   return path.join(projectRoot, 'scripts');
 };
 
+// Setup environment variables for stream doctor tools
+const setupStreamDoctorEnv = () => {
+  // Set default paths if not already set
+  if (!process.env.BIN_LOG_ACTIVE_DIR_PATH) {
+    process.env.BIN_LOG_ACTIVE_DIR_PATH = '/var/log/foundation/binlog/active';
+  }
+  if (!process.env.BIN_LOG_DONE_DIR_PATH) {
+    process.env.BIN_LOG_DONE_DIR_PATH = '/var/log/foundation/binlog/done';
+  }
+  
+  // Log the environment setup
+  logger.info('StreamDoctor environment setup:', {
+    BIN_LOG_ACTIVE_DIR_PATH: process.env.BIN_LOG_ACTIVE_DIR_PATH,
+    BIN_LOG_DONE_DIR_PATH: process.env.BIN_LOG_DONE_DIR_PATH,
+    cwd: process.cwd()
+  });
+};
+
 // List stats files tool
 export const listStatsFiles = tool(
   async ({ m, c, n }) => {
+    // Setup environment variables
+    setupStreamDoctorEnv();
+    
     const scriptsPath = getScriptsPath();
     const scriptPath = path.join(scriptsPath, 'list_binlogs.sh');
     
@@ -26,19 +47,30 @@ export const listStatsFiles = tool(
     logger.info('Script exists:', fs.existsSync(scriptPath));
     
     const args: string[] = [];
-    // if (m !== undefined) args.push('-m', String(m));
-    // if (c !== undefined) args.push('-c', String(c));
-    // if (n) args.push('-n', n);
+    if (m !== undefined) args.push('-m', String(m));
+    if (c !== undefined) args.push('-c', String(c));
+    if (n) args.push('-n', n);
 
     // Debug: Log arguments
-    logger.info('list_binlogs.sh Arguments xxx:', args);
+    logger.info('list_binlogs.sh Arguments:', args);
     
     const options: any = { 
       encoding: 'utf8',
-      maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+      maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+      timeout: 30000, // 30 second timeout
+      env: {
+        ...process.env,
+        BIN_LOG_ACTIVE_DIR_PATH: process.env.BIN_LOG_ACTIVE_DIR_PATH || '/var/log/foundation/binlog/active',
+        BIN_LOG_DONE_DIR_PATH: process.env.BIN_LOG_DONE_DIR_PATH || '/var/log/foundation/binlog/done'
+      }
     };
     
-    return execFileSync(scriptPath, args, options);
+    try {
+      return execFileSync(scriptPath, args, options);
+    } catch (error) {
+      logger.error('list_binlogs.sh execution failed:', error);
+      throw error;
+    }
   },
   {
     name: "list-stats-files",

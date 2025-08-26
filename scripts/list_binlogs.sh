@@ -123,7 +123,51 @@ TIME_FILTER="$MTIME_FILTER $CTIME_FILTER"
 BIN_LOG_ACTIVE_DIR_PATH="${BIN_LOG_ACTIVE_DIR_PATH:-/var/log/foundation/binlog/active}"
 BIN_LOG_DONE_DIR_PATH="${BIN_LOG_DONE_DIR_PATH:-/var/log/foundation/binlog/done}"
 
-{
-  find "$BIN_LOG_ACTIVE_DIR_PATH" -type f $TIME_FILTER $NAME_FILTER 2>/dev/null
-  find "$BIN_LOG_DONE_DIR_PATH" -type f $TIME_FILTER $NAME_FILTER 2>/dev/null
-} | tr '\n' ' ' | sed 's/ $/\n/'
+# Check if directories exist and are accessible
+if [[ ! -d "$BIN_LOG_ACTIVE_DIR_PATH" ]]; then
+  echo "Warning: Active directory does not exist: $BIN_LOG_ACTIVE_DIR_PATH" >&2
+  ACTIVE_DIR_EXISTS=false
+else
+  ACTIVE_DIR_EXISTS=true
+fi
+
+if [[ ! -d "$BIN_LOG_DONE_DIR_PATH" ]]; then
+  echo "Warning: Done directory does not exist: $BIN_LOG_DONE_DIR_PATH" >&2
+  DONE_DIR_EXISTS=false
+else
+  DONE_DIR_EXISTS=true
+fi
+
+# If neither directory exists, return empty result
+if [[ "$ACTIVE_DIR_EXISTS" == "false" && "$DONE_DIR_EXISTS" == "false" ]]; then
+  echo ""
+  exit 0
+fi
+
+# Build find commands with proper error handling
+FIND_COMMANDS=""
+
+if [[ "$ACTIVE_DIR_EXISTS" == "true" ]]; then
+  FIND_COMMANDS="$FIND_COMMANDS find \"$BIN_LOG_ACTIVE_DIR_PATH\" -type f $TIME_FILTER $NAME_FILTER 2>/dev/null;"
+fi
+
+if [[ "$DONE_DIR_EXISTS" == "true" ]]; then
+  FIND_COMMANDS="$FIND_COMMANDS find \"$BIN_LOG_DONE_DIR_PATH\" -type f $TIME_FILTER $NAME_FILTER 2>/dev/null;"
+fi
+
+# Execute find commands with timeout (works on both Linux and macOS)
+if [[ -n "$FIND_COMMANDS" ]]; then
+  # Use timeout if available, otherwise just run the command
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 10 bash -c "$FIND_COMMANDS" | tr '\n' ' ' | sed 's/ $/\n/'
+  else
+    # On macOS, use gtimeout if available, otherwise run without timeout
+    if command -v gtimeout >/dev/null 2>&1; then
+      gtimeout 10 bash -c "$FIND_COMMANDS" | tr '\n' ' ' | sed 's/ $/\n/'
+    else
+      bash -c "$FIND_COMMANDS" | tr '\n' ' ' | sed 's/ $/\n/'
+    fi
+  fi
+else
+  echo ""
+fi

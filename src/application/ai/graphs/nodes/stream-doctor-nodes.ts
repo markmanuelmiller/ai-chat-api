@@ -304,10 +304,12 @@ export async function getData(
   let result;
 
   try {
-
+    console.log('DEBUG: Invoking listStatsFiles with args:', toolCall.args);
     result = await listStatsFiles.invoke(toolCall.args);
+    console.log('DEBUG: listStatsFiles result length:', result?.length || 0);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('DEBUG: listStatsFiles error:', error);
     return {
       error: `Failed to list stats files: ${errorMessage}`,
     };

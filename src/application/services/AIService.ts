@@ -24,7 +24,7 @@ export class AIService {
     private readonly webSocketManager: WebSocketManager,
   ) {
     this.llm = new ChatAnthropic({
-      modelName: "claude-3-7-sonnet-latest",
+      model: "claude-sonnet-4-20250514",
       temperature: 0,
       ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {})
     });
