@@ -10,6 +10,26 @@ import { StreamDoctorState } from '../types/stream-doctor-state';
 import { streamDoctorTools, listStatsFiles, describeData } from '../tools/stream-doctor-tools';
 import { ToolResult } from '../types/stream-doctor-state';
 
+// Helper function to add timeout to LLM calls
+async function invokeWithTimeout<T>(llmCall: Promise<T>, timeoutMs: number = 30000): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const result = await Promise.race([
+      llmCall,
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener('abort', () => {
+          reject(new Error(`LLM call timed out after ${timeoutMs}ms`));
+        });
+      })
+    ]);
+    return result;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 
 
 // Get the scripts directory path
@@ -238,10 +258,10 @@ export async function isMetaDataOnly(
     const isMetaDataOnlySchemaModel = llm.withStructuredOutput(isMetaDataOnlySchema);
     const isMetaDataOnlyTester = isMetaDataOnlySchemaPrompt.pipe(isMetaDataOnlySchemaModel);
 
-    const result = await isMetaDataOnlyTester.invoke({
+    const result = await invokeWithTimeout(isMetaDataOnlyTester.invoke({
       prompt: state.input,
       conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
-    });
+    }), 30000);
 
     if (result?.requiresData) {
       return {};
@@ -254,7 +274,7 @@ export async function isMetaDataOnly(
       conversationHistory: conversationHistory.length > 0 ? JSON.stringify(conversationHistory) : "No previous conversation history."
     });
 
-    const response = await llm.invoke(messages);
+    const response = await invokeWithTimeout(llm.invoke(messages), 30000);
 
     return {
       finalResult: typeof response?.content === 'string' ? response.content : JSON.stringify(response?.content) || "",
@@ -278,7 +298,7 @@ export async function getData(
     conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
   });
 
-  const msg = await llmWithTools.invoke(messages);
+  const msg = await invokeWithTimeout(llmWithTools.invoke(messages), 30000);
 
   if (!msg.tool_calls || msg.tool_calls.length === 0) {
     return {
@@ -320,27 +340,32 @@ export async function getData(
       error: "No stats files found",
     }
   }
-
+  console.log('DEBUG: result:', result);
   try {
     const scriptsPath = getScriptsPath();
     const parseScriptPath = path.join(scriptsPath, 'parse_binlogs.sh');
+    console.log('DEBUG: parseScriptPath:', parseScriptPath);
     result = await execFileSync(parseScriptPath, [], { 
       encoding: 'utf8', 
       input: result,
       maxBuffer: 1024 * 1024 * 100 // 100MB buffer
     });
   } catch (error) {
+    console.error('DEBUG: parse_binlogs.sh error:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       error: `Failed to convert binary logs to CSV: ${errorMessage}`,
     };
   }
+  console.log('DEBUG: result:', result);
 
   if (!result || result.trim() === '') {
     return {
       error: "No CSV data generated from stats files",
     }
   }
+
+  console.log('DEBUG: result:', result);
 
   toolsHistory.push({
     toolName: 'convert-binary-to-csv',
@@ -494,7 +519,7 @@ export async function analyzeData(
   const llmWithTools = llm.bindTools?.(streamDoctorTools) || llm;
 
   for (let i = 0; i < 10; i++) {
-    const msg = await llmWithTools.invoke(messages);
+    const msg = await invokeWithTimeout(llmWithTools.invoke(messages), 30000);
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       if (i > 0) {
@@ -582,7 +607,7 @@ export async function response(
   });
 
   // Call the LLM and get the result
-  const llmResponse = await llm.invoke(messages);
+  const llmResponse = await invokeWithTimeout(llm.invoke(messages), 30000);
   const responseContent = llmResponse && llmResponse.content ? 
     (typeof llmResponse.content === 'string' ? llmResponse.content : JSON.stringify(llmResponse.content)) : 
     "No response generated.";

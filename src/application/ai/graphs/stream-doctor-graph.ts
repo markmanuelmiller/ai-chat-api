@@ -74,10 +74,23 @@ export class StreamDoctorGraph {
    * @returns The final state after graph execution
    */
   async invoke(initialState: Partial<typeof StreamDoctorStateAnnotation.State>): Promise<typeof StreamDoctorStateAnnotation.State> {
-    console.log('StreamDoctorGraph invoke - initialState:', initialState);
-    const result = await this.graph.invoke(initialState as typeof StreamDoctorStateAnnotation.State);
-    console.log('StreamDoctorGraph invoke - result:', result);
-    return result;
+    try {
+      console.log('StreamDoctorGraph invoke - initialState:', initialState);
+      const result = await this.graph.invoke(initialState as typeof StreamDoctorStateAnnotation.State);
+      console.log('StreamDoctorGraph invoke - result:', result);
+      return result;
+    } catch (error) {
+      console.error('StreamDoctorGraph invoke - Error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Return a state with error information
+      return {
+        ...initialState,
+        error: `Graph execution failed: ${errorMessage}`,
+        finalResult: `An error occurred during graph execution: ${errorMessage}`,
+        streamingMessages: [`Error: ${errorMessage}`]
+      } as typeof StreamDoctorStateAnnotation.State;
+    }
   }
   
   /**
@@ -86,10 +99,27 @@ export class StreamDoctorGraph {
    * @returns A stream of state updates
    */
   async stream(initialState: Partial<typeof StreamDoctorStateAnnotation.State>): Promise<AsyncIterable<typeof StreamDoctorStateAnnotation.State>> {
-    console.log('StreamDoctorGraph stream - initialState:', initialState);
-    const result = await this.graph.stream(initialState as typeof StreamDoctorStateAnnotation.State);
-    console.log('StreamDoctorGraph stream - result:', result);
-    return result;
+    try {
+      console.log('StreamDoctorGraph stream - initialState:', initialState);
+      const result = await this.graph.stream(initialState as typeof StreamDoctorStateAnnotation.State);
+      console.log('StreamDoctorGraph stream - result:', result);
+      return result;
+    } catch (error) {
+      console.error('StreamDoctorGraph stream - Error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Create an async generator that yields the error state
+      const errorStream = async function* () {
+        yield {
+          ...initialState,
+          error: `Graph streaming failed: ${errorMessage}`,
+          finalResult: `An error occurred during graph streaming: ${errorMessage}`,
+          streamingMessages: [`Error: ${errorMessage}`]
+        } as typeof StreamDoctorStateAnnotation.State;
+      };
+      
+      return errorStream();
+    }
   }
 }
 

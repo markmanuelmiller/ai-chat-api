@@ -16,6 +16,26 @@ export class AIService {
   private llm: ChatAnthropic;
   private debugStreamService: DebugStreamService;
 
+  // Helper method to add timeout to LLM calls
+  private async invokeWithTimeout<T>(llmCall: Promise<T>, timeoutMs: number = 30000): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+      const result = await Promise.race([
+        llmCall,
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => {
+            reject(new Error(`LLM call timed out after ${timeoutMs}ms`));
+          });
+        })
+      ]);
+      return result;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   constructor(
     private readonly chatRepository: ChatRepository,
     private readonly messageRepository: MessageRepository,
@@ -23,9 +43,11 @@ export class AIService {
     private readonly config: any,
     private readonly webSocketManager: WebSocketManager,
   ) {
+    console.log('DEBUG: AIService constructor', config);
     this.llm = new ChatAnthropic({
       model: "claude-sonnet-4-20250514",
       temperature: 0,
+      maxRetries: 3,
       ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {})
     });
     
