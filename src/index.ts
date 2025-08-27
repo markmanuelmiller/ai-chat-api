@@ -1,4 +1,3 @@
-import 'module-alias/register';
 import 'dotenv/config';
 import { createServer } from 'http';
 import { config } from '@/config/config';
