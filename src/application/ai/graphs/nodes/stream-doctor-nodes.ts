@@ -244,7 +244,6 @@ export async function isMetaDataOnly(
   console.log('DEBUG: isMetaDataOnly called with state:', {
     input: state.message,
     conversationHistoryLength: (state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))?.length || 0,
-    sessionId: state.chatId
   });
   
   let metaDataContent;
@@ -528,8 +527,14 @@ export async function analyzeData(
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       if (i > 0) {
+        // Store the final result in toolsHistory for the response node to access
+        let toolsHistory: ToolResult[] = state.toolsHistory || [];
+        toolsHistory.push({
+          toolName: 'analyze-data-result',
+          output: result || "",
+        });
         return {
-          result: result,
+          toolsHistory,
         };
       }
 
@@ -593,6 +598,14 @@ export async function response(
   let error = state.error || "";
   let result = state.result || "";
 
+  // Check for analyze-data-result in toolsHistory if no direct result
+  if (!result && state.toolsHistory) {
+    const analyzeResult = state.toolsHistory.find(t => t.toolName === 'analyze-data-result');
+    if (analyzeResult) {
+      result = analyzeResult.output;
+    }
+  }
+
   // If error, indicate in result; if not, clear error
   if (error) {
     error = "ERROR: " + error;
@@ -625,10 +638,12 @@ export async function response(
     content: responseContent
   });
 
+  // log the entire state
+  console.log('DEBUG: state:', state);
+
   return {
     chatHistory: [...(state.chatHistory || []), prompt, responseContent],
     result: responseContent,
-    streamingMessage: responseContent,
   };
 }
 
