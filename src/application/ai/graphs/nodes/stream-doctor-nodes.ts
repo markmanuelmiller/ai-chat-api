@@ -6,9 +6,14 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { StreamDoctorState } from '../types/stream-doctor-state';
+import { StateAnnotation } from '../debug-stream-graph';
 import { streamDoctorTools, listStatsFiles, describeData } from '../tools/stream-doctor-tools';
-import { ToolResult } from '../types/stream-doctor-state';
+
+// Tool result interface
+export interface ToolResult {
+  toolName: string;
+  output: string;
+}
 
 // Helper function to add timeout to LLM calls
 async function invokeWithTimeout<T>(llmCall: Promise<T>, timeoutMs: number = 30000): Promise<T> {
@@ -228,18 +233,18 @@ Always include either the error message or the final result, depending on the si
   ],
   ["human", "{prompt}"],
   ["human", "Error: {error}"],
-  ["human", "Result: {finalResult}"]
+  ["human", "Result: {result}"]
 ]);
 
 // Node functions
 export async function isMetaDataOnly(
-  state: StreamDoctorState,
+  state: typeof StateAnnotation.State,
   llm: BaseChatModel,
-): Promise<Partial<StreamDoctorState>> {
+): Promise<Partial<typeof StateAnnotation.State>> {
   console.log('DEBUG: isMetaDataOnly called with state:', {
-    input: state.input,
-    conversationHistoryLength: state.conversationHistory?.length || 0,
-    sessionId: state.sessionId
+    input: state.message,
+    conversationHistoryLength: (state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))?.length || 0,
+    sessionId: state.chatId
   });
   
   let metaDataContent;
@@ -259,17 +264,17 @@ export async function isMetaDataOnly(
     const isMetaDataOnlyTester = isMetaDataOnlySchemaPrompt.pipe(isMetaDataOnlySchemaModel);
 
     const result = await invokeWithTimeout(isMetaDataOnlyTester.invoke({
-      prompt: state.input,
-      conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
+      prompt: state.message,
+      conversationHistory: ((state.chatHistory || []).map(msg => ({ role: 'user', content: msg })) || []).length > 0 ? JSON.stringify((state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))) : "No previous conversation history."
     }), 30000);
 
     if (result?.requiresData) {
       return {};
     }
 
-    const conversationHistory = state.conversationHistory || [];
+    const conversationHistory = (state.chatHistory || []).map(msg => ({ role: 'user', content: msg })) || [];
     const messages = await metaDataOnlyQueryPrompt.formatMessages({
-      prompt: state.input,
+      prompt: state.message,
       metaData: metaDataContent,
       conversationHistory: conversationHistory.length > 0 ? JSON.stringify(conversationHistory) : "No previous conversation history."
     });
@@ -277,7 +282,7 @@ export async function isMetaDataOnly(
     const response = await invokeWithTimeout(llm.invoke(messages), 30000);
 
     return {
-      finalResult: typeof response?.content === 'string' ? response.content : JSON.stringify(response?.content) || "",
+      result: typeof response?.content === 'string' ? response.content : JSON.stringify(response?.content) || "",
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -288,14 +293,14 @@ export async function isMetaDataOnly(
 }
 
 export async function getData(
-  state: StreamDoctorState,
+  state: typeof StateAnnotation.State,
   llm: BaseChatModel,
-): Promise<Partial<StreamDoctorState>> {
+): Promise<Partial<typeof StateAnnotation.State>> {
   const llmWithTools = llm.bindTools?.(streamDoctorTools) || llm;
 
   let messages = await listFilesStepPrompt.formatMessages({
-    prompt: state.input,
-    conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
+    prompt: state.message,
+    conversationHistory: ((state.chatHistory || []).map(msg => ({ role: 'user', content: msg })) || []).length > 0 ? JSON.stringify((state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))) : "No previous conversation history."
   });
 
   const msg = await invokeWithTimeout(llmWithTools.invoke(messages), 30000);
@@ -378,9 +383,9 @@ export async function getData(
 }
 
 export async function getMetaData(
-  state: StreamDoctorState,
+  state: typeof StateAnnotation.State,
   llm: BaseChatModel,
-): Promise<Partial<StreamDoctorState>> {
+): Promise<Partial<typeof StateAnnotation.State>> {
   let result;
 
   try {
@@ -407,14 +412,14 @@ export async function getMetaData(
   const recordTypesSelector = selectRecordTypePrompt.pipe(selectRecordTypesModel);
 
   result = await recordTypesSelector.invoke({
-    prompt: state.input,
+    prompt: state.message,
     recordTypes: result,
-    conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
+    conversationHistory: ((state.chatHistory || []).map(msg => ({ role: 'user', content: msg })) || []).length > 0 ? JSON.stringify((state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))) : "No previous conversation history."
   });
 
   if (!result || !result.recordTypes?.length) {
     return {
-      error: `Records types selector did not return any record types for the input: ${state.input} result: ${result}`,
+      error: `Records types selector did not return any record types for the input: ${state.message} result: ${result}`,
     };
   }
   
@@ -465,9 +470,9 @@ function generateAwkFilterRecordsExpression(values: string[]): string {
 }
 
 export async function analyzeData(
-  state: StreamDoctorState,
+  state: typeof StateAnnotation.State,
   llm: BaseChatModel,
-): Promise<Partial<StreamDoctorState>> {
+): Promise<Partial<typeof StateAnnotation.State>> {
   let csvData = state.toolsHistory.find(t => t.toolName === 'convert-binary-to-csv')?.output || "";
   let recordTypes = state.toolsHistory.find(t => t.toolName === 'record-types')?.output || "";
 
@@ -511,8 +516,8 @@ export async function analyzeData(
   let messages = await dataAnalyzerPrompt.formatMessages({
     metaData: `\nmeta-data:\n ${metaData}`,
     sampleData: `\nsample-data:\n ${sampleData}`,
-    prompt: `\nuser-query:\n ${state.input}`,
-    conversationHistory: (state.conversationHistory || []).length > 0 ? JSON.stringify(state.conversationHistory) : "No previous conversation history."
+    prompt: `\nuser-query:\n ${state.message}`,
+    conversationHistory: ((state.chatHistory || []).map(msg => ({ role: 'user', content: msg })) || []).length > 0 ? JSON.stringify((state.chatHistory || []).map(msg => ({ role: 'user', content: msg }))) : "No previous conversation history."
   });
 
   let result;
@@ -524,7 +529,7 @@ export async function analyzeData(
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       if (i > 0) {
         return {
-          finalResult: result,
+          result: result,
         };
       }
 
@@ -581,29 +586,29 @@ export async function analyzeData(
 }
 
 export async function response(
-  state: StreamDoctorState,
+  state: typeof StateAnnotation.State,
   llm: BaseChatModel,
-): Promise<Partial<StreamDoctorState>> {
-  const prompt = state.input || "";
+): Promise<Partial<typeof StateAnnotation.State>> {
+  const prompt = state.message || "";
   let error = state.error || "";
-  let finalResult = state.finalResult || "";
+  let result = state.result || "";
 
-  // If error, indicate in finalResult; if not, clear error
+  // If error, indicate in result; if not, clear error
   if (error) {
     error = "ERROR: " + error;
-    finalResult = "FINAL RESULT: An error occurred. See error message.";
-  } else if (finalResult) {
+    result = "FINAL RESULT: An error occurred. See error message.";
+  } else if (result) {
     error = "ERROR: no errors Success !!!";
-    finalResult = "FINAL RESULT: " + finalResult;
+    result = "FINAL RESULT: " + result;
   } else {
-    finalResult = "FINAL RESULT: hmm no errors and no result";
+    result = "FINAL RESULT: hmm no errors and no result";
     error = "ERROR: no errors";
   }
 
   const messages = await generateResponsePrompt.formatMessages({
     prompt,
     error,
-    finalResult,
+    result,
   });
 
   // Call the LLM and get the result
@@ -613,7 +618,7 @@ export async function response(
     "No response generated.";
 
   // Add to conversation history
-  const conversationHistory = state.conversationHistory || [];
+  const conversationHistory = (state.chatHistory || []).map(msg => ({ role: 'user', content: msg }));
   conversationHistory.push({ role: "user", content: prompt });
   conversationHistory.push({ 
     role: "assistant", 
@@ -621,12 +626,12 @@ export async function response(
   });
 
   return {
-    conversationHistory,
-    finalResult: responseContent,
-    streamingMessages: [responseContent],
+    chatHistory: [...(state.chatHistory || []), prompt, responseContent],
+    result: responseContent,
+    streamingMessage: responseContent,
   };
 }
 
-export function shouldEnd(state: StreamDoctorState) {
-  return state.error || state.finalResult ? "true" : "false";
+export function shouldEnd(state: typeof StateAnnotation.State) {
+  return state.error || state.result ? "true" : "false";
 }

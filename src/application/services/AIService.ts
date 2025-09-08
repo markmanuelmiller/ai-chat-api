@@ -132,12 +132,6 @@ export class AIService {
     (async () => {
       let fullResponse = '';
       try {
-        queue.addMessage({
-          type: 'STREAM_START',
-          payload: { message: 'AI processing started.' },
-          timestamp: new Date().toISOString(),
-          sessionId: sessionId,
-        });
 
         // Call the modified debugStreamService.streamResponse
         // It now pushes to the queue directly and returns the full response string.
@@ -162,25 +156,11 @@ export class AIService {
             ),
           );
 
-          // Send stream end message with the final response
-          queue.addMessage({
-            type: 'STREAM_END',
-            payload: { message: 'AI processing finished.', finalResponse: fullResponse.trim() },
-            timestamp: new Date().toISOString(),
-            sessionId: sessionId,
-          });
         } else {
           // If fullResponse is empty, it means DebugStreamService didn't produce a final string.
           // This might be normal if the graph only sends other types of messages (e.g. status updates)
           // or an error might have occurred (which DebugStreamService would have pushed to queue).
           logger.info(`AI processing for session ${sessionId} finished without a final textual response.`);
-          // Send a different type of STREAM_END or rely on the queue being closed.
-          queue.addMessage({
-            type: 'STREAM_END',
-            payload: { message: 'AI processing finished without a final textual response.' },
-            timestamp: new Date().toISOString(),
-            sessionId: sessionId,
-          });
         }
 
       } catch (error) {
@@ -188,7 +168,8 @@ export class AIService {
         const errorTyped = error as Error;
         const errorMsg: StreamableMessage = {
           type: 'ERROR',
-          payload: { error: 'Sorry, I encountered an error processing your request.', details: errorTyped.message },
+          chatId: chatId,
+          payload: { node: 'AIService', message: `Sorry, I encountered an error processing your request: ${errorTyped.message}` },
           timestamp: new Date().toISOString(),
           sessionId: sessionId,
         };

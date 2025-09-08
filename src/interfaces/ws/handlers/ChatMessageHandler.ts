@@ -16,7 +16,10 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
     if (!chatId || !message) {
       client.send(JSON.stringify({
         type: 'error',
-        error: 'chatId and message are required',
+        chatId: chatId || 'unknown',
+        payload: {
+          message: 'chatId and message are required',
+        },
       }));
       return;
     }
@@ -37,7 +40,7 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
         // and WebSocketManager will send those messages to the client.
         // The client.userId is needed by AIService.
         await this.aiService.streamResponse(chatId, client.userId, message);
-
+        console.log('ChatMessageHandler: streamResponse called');
         // No need to loop here anymore, as WebSocketManager handles sending queued messages.
         // The client will receive STREAM_START, CHUNK, STREAM_END, etc., from the queue.
         // We can consider if an additional ack like 'STREAM_INITIATED' is useful here,
@@ -45,6 +48,7 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
         // The old 'chat_response_chunk' and 'chat_response_complete' from this handler are now obsolete.
 
       } else {
+        console.log('ChatMessageHandler: stream false');
         // Generate the full response without streaming
         const fullResponse = await this.aiService.generateResponse(chatId, message);
         
@@ -59,7 +63,10 @@ export class ChatMessageHandler implements WebSocketMessageHandler {
       logger.error('Error processing chat message', error);
       client.send(JSON.stringify({
         type: 'error',
-        error: 'Failed to process chat message',
+        chatId,
+        payload: {
+          message: 'Failed to process chat message',
+        },
       }));
     }
   }

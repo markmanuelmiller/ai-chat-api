@@ -110,7 +110,10 @@ export class WebSocketManager {
             logger.error('Error handling WebSocket message', error);
             client.send(JSON.stringify({
               type: 'error',
-              error: 'Invalid message format',
+              chatId: 'unknown',
+              payload: {
+                message: 'Invalid message format',
+              },
             }));
           }
         });
@@ -161,12 +164,15 @@ export class WebSocketManager {
   }
 
   private async handleMessage(client: AuthenticatedClient, message: any): Promise<void> {
-    const { type, payload } = message;
+    const { type, chatId, payload } = message;
     
     if (!type) {
       client.send(JSON.stringify({
         type: 'error',
-        error: 'Message type is required',
+        chatId: chatId || 'unknown',
+        payload: {
+          message: 'Message type is required',
+        },
       }));
       return;
     }
@@ -175,18 +181,29 @@ export class WebSocketManager {
     if (!handler) {
       client.send(JSON.stringify({
         type: 'error',
-        error: `Unknown message type: ${type}`,
+        chatId: chatId || 'unknown',
+        payload: {
+          message: `Unknown message type: ${type}`,
+        },
       }));
       return;
     }
 
     try {
-      await handler.handle(client, payload, this);
+      // For chat_message type, we need to pass the chatId along with the payload
+      if (type === 'chat_message') {
+        await handler.handle(client, { chatId, ...payload }, this);
+      } else {
+        await handler.handle(client, payload, this);
+      }
     } catch (error) {
       logger.error(`Error in handler for message type ${type}`, error);
       client.send(JSON.stringify({
         type: 'error',
-        error: 'Internal server error',
+        chatId: chatId || 'unknown',
+        payload: {
+          message: 'Internal server error',
+        },
       }));
     }
   }

@@ -57,7 +57,7 @@ export class DebugStreamService {
     queue: StreamingMessageQueue, 
     sessionId: string
   ): Promise<string> {
-    let accumulatedFinalReport = ""; // Accumulates the final report content from an LLM
+    let accumulatedResult = ""; // Accumulates the final result content
 
     try {
       const initialState: Partial<typeof StateAnnotation.State> = {
@@ -79,114 +79,96 @@ export class DebugStreamService {
             const nodeOutput = chunkData[nodeName];
             this.logger.debug(`[DebugStreamService] Processing output for node: ${nodeName}, session: ${sessionId}`, nodeOutput);
 
-            let nodeOutputProcessedForSpecificMessages = false;
-
-            // 1. Handle 'streamingMessages' (simple text updates from any node)
-            if (nodeOutput && Array.isArray(nodeOutput.streamingMessages) && nodeOutput.streamingMessages.length > 0) {
-              this.logger.debug(`[DebugStreamService] Found streamingMessages in ${nodeName} for session ${sessionId}`);
-              for (const streamingMsg of nodeOutput.streamingMessages) {
-                if (typeof streamingMsg === 'string') {
-                  queue.addMessage({
-                    type: 'GRAPH_MESSAGE',
-                    payload: {
-                      node: nodeName,
-                      message: streamingMsg,
-                    },
-                    timestamp: new Date().toISOString(),
-                    sessionId: sessionId,
-                  });
-                  this.logger.debug(`[DebugStreamService] Queued GRAPH_MESSAGE from ${nodeName}: "${streamingMsg}", session: ${sessionId}`);
-                }
-              }
-              nodeOutputProcessedForSpecificMessages = true;
+            // Handle error messages
+            if (nodeOutput && typeof nodeOutput.error === 'string' && nodeOutput.error.trim()) {
+              this.logger.debug(`[DebugStreamService] Found error in ${nodeName} for session ${sessionId}`);
+              queue.addMessage({
+                type: 'ERROR',
+                chatId: chatId,
+                timestamp: new Date().toISOString(),
+                payload: {
+                  node: nodeName,
+                  message: nodeOutput.error,
+                },
+                sessionId: sessionId,
+              });
+              this.logger.debug(`[DebugStreamService] Queued ERROR from ${nodeName}: "${nodeOutput.error}", session: ${sessionId}`);
             }
+            // Handle streaming messages
+            else if (nodeOutput && typeof nodeOutput.streamingMessage === 'string' && nodeOutput.streamingMessage.trim()) {
+              this.logger.debug(`[DebugStreamService] Found streamingMessage in ${nodeName} for session ${sessionId}`);
+              queue.addMessage({
+                type: 'GRAPH_MESSAGE',
+                chatId: chatId,
+                timestamp: new Date().toISOString(),
+                payload: {
+                  node: nodeName,
+                  message: nodeOutput.streamingMessage,
+                },
+                sessionId: sessionId,
+              });
+              this.logger.debug(`[DebugStreamService] Queued GRAPH_MESSAGE from ${nodeName}: "${nodeOutput.streamingMessage}", session: ${sessionId}`);
+            }
+            // Handle result content
+            else if (nodeOutput && typeof nodeOutput.result === 'string' && nodeOutput.result.trim()) {
+              this.logger.debug(`[DebugStreamService] Found result in ${nodeName} for session ${sessionId}`);
+              const resultContent = nodeOutput.result;
 
-            // 2. Handle 'finalReport' (typically from an LLM node, e.g., generateFinalReportNode)
-            // This part assumes 'finalReport' contains the text from an LLM.
-            // If your LLM streams tokens into a different field, adjust this.
-            if (nodeOutput && typeof nodeOutput.finalReport === 'string') {
-              this.logger.debug(`[DebugStreamService] Found finalReport in ${nodeName} for session ${sessionId}`);
-              const llmReportContent = nodeOutput.finalReport;
-
-              // If the finalReport field contains the *entire* report up to this point,
-              // we send the new part. If it's just a token/chunk, this logic might be too simple,
-              // but usually for a field named "finalReport" it's the full text.
-              // Based on your logs, finalReport in generateFinalReportNode appears as a complete block.
-              if (llmReportContent.length > accumulatedFinalReport.length) {
-                const newContent = llmReportContent.substring(accumulatedFinalReport.length);
-                accumulatedFinalReport = llmReportContent; // Update the main accumulator for the service's return value
+              // If the result field contains new content, send the new part
+              if (resultContent.length > accumulatedResult.length) {
+                const newContent = resultContent.substring(accumulatedResult.length);
+                accumulatedResult = resultContent; // Update the main accumulator for the service's return value
                 
                 queue.addMessage({
-                  type: 'LLM_CHUNK', // Or 'FINAL_REPORT_CHUNK' or 'FINAL_REPORT_UPDATE'
+                  type: 'NODE_OUTPUT',
+                  chatId: chatId,
+                  timestamp: new Date().toISOString(),
                   payload: {
                     node: nodeName,
-                    chunk: newContent, // Send the new part
-                    fullReportSnapshot: llmReportContent // Optionally send the full snapshot too
+                    message: newContent,
                   },
-                  timestamp: new Date().toISOString(),
                   sessionId: sessionId,
                 });
-                this.logger.debug(`[DebugStreamService] Queued LLM_CHUNK from ${nodeName}, new content length: ${newContent.length}, session: ${sessionId}`);
-
-              } else if (llmReportContent && llmReportContent !== accumulatedFinalReport) {
-                // This case implies the report might not be purely additive or was reset.
-                // For simplicity, if it's different and not shorter, send it as a new chunk/snapshot.
-                // Or if it *is* shorter, it might be a correction or a new stream.
-                // For now, let's assume it means it's a new complete version if not longer.
-                accumulatedFinalReport = llmReportContent; // Reset accumulator to this new version
-                 queue.addMessage({
-                  type: 'LLM_CHUNK', // Or 'FINAL_REPORT_SNAPSHOT'
+                this.logger.debug(`[DebugStreamService] Queued NODE_OUTPUT from ${nodeName}, new content length: ${newContent.length}, session: ${sessionId}`);
+              } else if (resultContent && resultContent !== accumulatedResult) {
+                // Handle case where result is different but not longer (could be a correction or new stream)
+                accumulatedResult = resultContent;
+                queue.addMessage({
+                  type: 'NODE_OUTPUT',
+                  chatId: chatId,
+                  timestamp: new Date().toISOString(),
                   payload: {
                     node: nodeName,
-                    chunk: llmReportContent, // Send the full content as a chunk
-                    fullReportSnapshot: llmReportContent 
+                    message: resultContent,
                   },
-                  timestamp: new Date().toISOString(),
                   sessionId: sessionId,
                 });
-                this.logger.debug(`[DebugStreamService] Queued LLM_CHUNK (full snapshot) from ${nodeName}, length: ${llmReportContent.length}, session: ${sessionId}`);
+                this.logger.debug(`[DebugStreamService] Queued NODE_OUTPUT (full snapshot) from ${nodeName}, length: ${resultContent.length}, session: ${sessionId}`);
               }
-              nodeOutputProcessedForSpecificMessages = true;
             }
-
-            // 3. Send a generic NODE_OUTPUT for the entire output of this node,
-            //    IF it wasn't fully captured by the specific handlers above OR if you always want full node outputs.
-            //    This is useful for client-side debugging or complex state updates.
-            //    Let's send it if there's any data at all in nodeOutput.
-            //    The client can then decide how to use/display this.
-            if (nodeOutput && Object.keys(nodeOutput).length > 0) {
-                 queue.addMessage({
-                    type: 'NODE_OUTPUT',
-                    payload: {
-                        node: nodeName,
-                        data: nodeOutput, // Send the full output of the node
-                    },
-                    timestamp: new Date().toISOString(),
-                    sessionId: sessionId,
-                });
-                this.logger.debug(`[DebugStreamService] Queued NODE_OUTPUT for ${nodeName}, session: ${sessionId}`);
-            } else if (!nodeOutputProcessedForSpecificMessages) {
-                // Node had an entry in the chunk but its output was empty/null
-                this.logger.debug(`[DebugStreamService] Node ${nodeName} had null/empty output, session: ${sessionId}`);
-                 queue.addMessage({
-                    type: 'NODE_SKIPPED_OR_EMPTY', // Or some other informational type
-                    payload: {
-                        node: nodeName,
-                        message: 'Node produced no output or was skipped.',
-                    },
-                    timestamp: new Date().toISOString(),
-                    sessionId: sessionId,
-                });
+            // Handle nodes with no specific output
+            else if (nodeOutput && Object.keys(nodeOutput).length === 0) {
+              this.logger.debug(`[DebugStreamService] Node ${nodeName} had empty output, session: ${sessionId}`);
+              queue.addMessage({
+                type: 'GRAPH_MESSAGE',
+                chatId: chatId,
+                timestamp: new Date().toISOString(),
+                payload: {
+                  node: nodeName,
+                  message: 'Node completed with no output.',
+                },
+                sessionId: sessionId,
+              });
             }
           }
         }
       }
       
-      this.logger.log(`[DebugStreamService] Graph stream finished for session ${sessionId}. Accumulated final report length: ${accumulatedFinalReport.length}`);
-      if (!accumulatedFinalReport && !queue.isClosed()) {
-        this.logger.warn(`[DebugStreamService] No accumulated final report content for session ${sessionId} after stream completion.`);
+      this.logger.log(`[DebugStreamService] Graph stream finished for session ${sessionId}. Accumulated result length: ${accumulatedResult.length}`);
+      if (!accumulatedResult && !queue.isClosed()) {
+        this.logger.warn(`[DebugStreamService] No accumulated result content for session ${sessionId} after stream completion.`);
       }
-      return accumulatedFinalReport;
+      return accumulatedResult;
 
     } catch (error) {
       const errorTyped = error as Error;
@@ -194,12 +176,12 @@ export class DebugStreamService {
       if (!queue.isClosed()) {
         queue.addMessage({
           type: 'ERROR',
-          payload: { 
-            source: 'DebugStreamService', 
-            error: 'Error streaming graph response.', 
-            details: errorTyped.message 
-          },
+          chatId: chatId,
           timestamp: new Date().toISOString(),
+          payload: { 
+            node: 'DebugStreamService', 
+            message: `Error streaming graph response: ${errorTyped.message}`,
+          },
           sessionId: sessionId,
         });
       }

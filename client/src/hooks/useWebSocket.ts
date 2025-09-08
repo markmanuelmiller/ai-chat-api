@@ -1,13 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Define types for the websocket messages
+
+// General WebSocket Events
 export interface ChatMessage {
   type: 'chat_message';
+  chatId: string;
   payload: {
-    chatId: string;
     message: string;
-    stream?: boolean;
+    stream: boolean;
   };
+}
+
+export interface ConnectionEstablished {
+  type: 'connection_established';
+  chatId: string;
 }
 
 export interface MessageReceived {
@@ -15,35 +22,53 @@ export interface MessageReceived {
   chatId: string;
 }
 
-export interface ChatResponseChunk {
-  type: 'chat_response_chunk';
-  chatId: string;
-  chunk: string;
-}
-
-export interface ChatResponseComplete {
-  type: 'chat_response_complete';
-  chatId: string;
-}
-
-export interface ChatResponseFull {
-  type: 'chat_response_full';
-  chatId: string;
-  content: string;
-}
-
 export interface ErrorMessage {
   type: 'error';
-  error: string;
+  chatId: string;
+  payload: {
+    message: string;
+  };
+}
+
+// Graph WebSocket Events
+export interface GraphMessage {
+  type: 'GRAPH_MESSAGE';
+  chatId: string;
+  timestamp: string;
+  payload: {
+    node: string;
+    message: string;
+  };
+}
+
+export interface NodeOutput {
+  type: 'NODE_OUTPUT';
+  chatId: string;
+  timestamp: string;
+  payload: {
+    node: string;
+    message: string;
+  };
+}
+
+export interface GraphError {
+  type: 'ERROR';
+  chatId: string;
+  timestamp: string;
+  payload: {
+    node: string;
+    message: string;
+  };
 }
 
 export type WebSocketMessage = 
   | ChatMessage
+  | ConnectionEstablished
   | MessageReceived
-  | ChatResponseChunk
-  | ChatResponseComplete
-  | ChatResponseFull
-  | ErrorMessage;
+  | ErrorMessage
+  | GraphMessage
+  | NodeOutput
+  | GraphError;
 
 // Custom hook for WebSocket connection
 export const useWebSocket = (url: string) => {
@@ -81,7 +106,7 @@ export const useWebSocket = (url: string) => {
         console.log('Received message:', data);
         
         if (data.type === 'error') {
-          setError(data.error);
+          setError(data.payload?.message || 'Unknown error');
         } else {
           setMessages((prev) => [...prev, data]);
         }
@@ -104,8 +129,8 @@ export const useWebSocket = (url: string) => {
 
     const chatMessage: ChatMessage = {
       type: 'chat_message',
+      chatId,
       payload: {
-        chatId,
         message,
         stream
       }
