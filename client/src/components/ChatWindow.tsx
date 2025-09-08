@@ -7,6 +7,8 @@ interface Message {
   content: string;
   isUser: boolean;
   isStreaming?: boolean;
+  isError?: boolean;
+  isMarkdown?: boolean;
 }
 
 interface ChatWindowProps {
@@ -48,9 +50,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isConnected }) => {
       {messages.map((message) => (
         <ChatMessage
           key={message.id}
-          content={<ReactMarkdown>{message.content}</ReactMarkdown>}
+          content={message.isMarkdown ? <ReactMarkdown>{message.content}</ReactMarkdown> : message.content}
           isUser={message.isUser}
           isStreaming={message.isStreaming}
+          isError={message.isError}
         />
       ))}
       <div ref={messagesEndRef} />

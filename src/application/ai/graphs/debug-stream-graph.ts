@@ -2,10 +2,15 @@ import { StateGraph, Annotation, MemorySaver } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { z } from 'zod';
 import axios from 'axios';
-import { JobGraph } from './job-graph';
-import { LogGraph } from './log-graph';
-import { StreamDoctorGraph } from './stream-doctor-graph';
 import { logger } from '@/utils/logger';
+import { 
+  isMetaDataOnly, 
+  getData, 
+  getMetaData, 
+  analyzeData, 
+  response, 
+  shouldEnd 
+} from './nodes/stream-doctor-nodes';
 
 interface StreamStatusResponse {
   status: string;
@@ -20,75 +25,30 @@ const IntentSchema = z.object({
 
 const INTENT_PROMPT = `Classify the intent as one of the following: ${IntentSchema.shape.intent._def.values.map(opt => `"${opt}"`).join(', ')}.`;
 
-// Graph state
-export const DebugParamsAnnotation = Annotation.Root({
-  start: Annotation<string>,
-  end: Annotation<string>,
-  timezone: Annotation<string>,
-  streamType: Annotation<string>,
-  streamStatus: Annotation<string>,
-  streamError: Annotation<string>,
-  streamErrorDescription: Annotation<string>,
-});
-
-export const JobDataAnnotation = Annotation.Root({
-  jobId: Annotation<string>,
-  launcherStatus: Annotation<string>,
-  dbStatus: Annotation<string>,
-  jobOrderStatus: Annotation<string>,
-  systemResourcesStatus: Annotation<string>,
-  report: Annotation<string>
-});
-
-export const LogDataAnnotation = Annotation.Root({
-  logs: Annotation<string[]>,
-  errors: Annotation<string[]>,
-  warnings: Annotation<string[]>,
-  analysis: Annotation<string>
-});
 
 export const StateAnnotation = Annotation.Root({
   chatId: Annotation<string>,
   message: Annotation<string>, // user message
   intent: Annotation<string>,
   chatHistory: Annotation<string[]>,
-  streamName: Annotation<string>,
-  debugParams: Annotation<typeof DebugParamsAnnotation.State>,
-  jobData: Annotation<typeof JobDataAnnotation.State>({
-    reducer: (prev: typeof JobDataAnnotation.State, next: typeof JobDataAnnotation.State) => ({
-      ...prev,
-      ...next
-    })
+  toolsHistory: Annotation<Array<{toolName: string, output: string}>>({
+    reducer: (prev: Array<{toolName: string, output: string}>, next: Array<{toolName: string, output: string}>) => [...prev, ...next],
+    default: () => []
   }),
-  logData: Annotation<typeof LogDataAnnotation.State>({
-    reducer: (prev: typeof LogDataAnnotation.State, next: typeof LogDataAnnotation.State) => ({
-      ...prev,
-      ...next
-    })
-  }),
-  finalReport: Annotation<string>,
-  streamingMessages: Annotation<string[]>({
-    reducer: (prev: string[], next: string[]) => [...prev, ...next]
-  })
+  result: Annotation<string>,
+  streamingMessage: Annotation<string>,
+  error: Annotation<string>
 });
 
 export class DebugStreamGraph {
   private graph: any;
   private llm: BaseChatModel;
-  private baseUrl: string;
-  private jobGraph: JobGraph;
-  private logGraph: LogGraph;
-  private streamDoctorGraph: StreamDoctorGraph;
   
   constructor(
     llm: BaseChatModel, 
     config: any
   ) {
     this.llm = llm;
-    this.baseUrl = config.mockServerUrl;
-    this.jobGraph = new JobGraph(llm, config);
-    this.logGraph = new LogGraph(llm, config);
-    this.streamDoctorGraph = new StreamDoctorGraph(llm);
     this.graph = this.buildGraph();
   }
   
@@ -128,126 +88,39 @@ export class DebugStreamGraph {
       return state;
     }
 
-    const streamDebugDataCollectorNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        const response = await axios.get<StreamStatusResponse>(`${this.baseUrl}/api/streams/${state.streamName}/status`);
-        return {
-          streamStatus: response.data.status,
-          streamError: response.data.error ?? '',
-          streamErrorDescription: response.data.errorDescription ?? '',
-          streamingMessages: [`Fetching status for stream ${state.streamName}...`]
-        };
-      } catch (error) {
-        console.log('Stream status service not available, skipping...');
-        return {
-          streamStatus: 'unknown',
-          streamError: 'Service unavailable',
-          streamErrorDescription: 'The stream status service is not available',
-          streamingMessages: [`Error: Unable to fetch stream status for ${state.streamName}`]
-        };
-      }
-    }
-
     const debugStreamRouter = (state: typeof StateAnnotation.State) => {
-      if (state.intent.includes("test")) return "Test";
       if (state.intent.includes("debug")) return "Debug";
       return "Fail";
     };
 
-    const streamNameNode = async (state: typeof StateAnnotation.State) => {
-      const msg = await this.llm.invoke(
-        `Extract the stream name from the following message: ${state.message}. Respond only with the stream name.`
-      );
-      return {
-        streamName: msg.content.toString(),
-        jobData: {
-          jobId: "123"
-        }
-      };
-    }
+    // Stream Doctor workflow nodes
+    const isMetaDataOnlyNode = async (state: typeof StateAnnotation.State) => {
+      return await isMetaDataOnly(state, this.llm);
+    };
 
-    const streamDoctorNode = async (state: typeof StateAnnotation.State) => {
-      try {
-        // Convert the debug stream state to stream doctor state format
-        const streamDoctorState = {
-          input: state.message,
-          chatId: state.chatId,
-          streamName: state.streamName,
-          conversationHistory: (state.chatHistory || []).map(msg => ({ role: 'user', content: msg })),
-          toolsHistory: [],
-          sessionId: state.chatId, // Use chatId as sessionId
-        };
+    const getDataNode = async (state: typeof StateAnnotation.State) => {
+      return await getData(state, this.llm);
+    };
 
-        logger.info('StreamDoctorNode - calling StreamDoctorGraph with state:', streamDoctorState);
-        
-        // Execute the Stream Doctor Graph
-        const result = await this.streamDoctorGraph.invoke(streamDoctorState);
-        
-        logger.info('StreamDoctorNode - StreamDoctorGraph result:', result);
-        
-        return {
-          finalReport: result.finalResult || `Stream Doctor analysis completed for ${state.streamName}`,
-          streamingMessages: result.streamingMessages || [`Stream Doctor analysis completed for ${state.streamName}`],
-          error: result.error || undefined
-        };
-      } catch (error) {
-        logger.error('StreamDoctorNode - Error:', error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          finalReport: `Stream Doctor analysis failed for ${state.streamName}: ${errorMessage}`,
-          streamingMessages: [`Error during Stream Doctor analysis: ${errorMessage}`],
-          error: errorMessage
-        };
-      }
-    }
+    const getMetaDataNode = async (state: typeof StateAnnotation.State) => {
+      return await getMetaData(state, this.llm);
+    };
 
-    const processSubgraphsNode = async (state: typeof StateAnnotation.State) => {
-      // Run both subgraphs in parallel
-      const [jobResult, logResult] = await Promise.all([
-        this.jobGraph.invoke(state),
-        this.logGraph.invoke(state)
-      ]);
+    const analyzeDataNode = async (state: typeof StateAnnotation.State) => {
+      return await analyzeData(state, this.llm);
+    };
 
-      // Combine the results
-      return {
-        ...state,
-        jobData: jobResult.jobData,
-        logData: logResult.logData,
-        streamingMessages: [
-          'Processing job data...',
-          'Analyzing logs...',
-          'Combining results...'
-        ]
-      };
-    }
+    const responseNode = async (state: typeof StateAnnotation.State) => {
+      return await response(state, this.llm);
+    };
 
-    const generateFinalReportNode = async (state: typeof StateAnnotation.State) => {
-      const msg = await this.llm.invoke(
-        `Generate a final report for the following stream: ${state.streamName}
-
-        Job Status Information:
-        ${state.jobData.report}
-
-        Log Analysis:
-        ${state.logData.analysis}
-
-        Please provide a comprehensive report that combines both the job status and log analysis.
-        Highlight any correlations between job issues and log patterns.
-        Provide actionable insights and recommendations.`
-      );
-      return {
-        finalReport: msg.content.toString(),
-        streamingMessages: ['Generating final report...']
-      };
-    }
 
     // add a node that asks llm for intent type "other" 
     const otherIntentNode = async (state: typeof StateAnnotation.State) => {
       const msg = await this.llm.invoke(state.message);
       state.intent = "other";
       return {
-        finalReport: msg.content.toString(),
-        streamingMessages: [msg.content.toString()]
+        result: msg.content.toString()
       }
     }
 
@@ -255,24 +128,32 @@ export class DebugStreamGraph {
     const chain = new StateGraph(StateAnnotation)
       .addNode("intakeMessageNode", intakeMessageNode)
       .addNode("determineIntentNode", determineIntentNode)
-      .addNode("streamNameNode", streamNameNode)
-      .addNode("streamDoctorNode", streamDoctorNode)
-      .addNode("streamDebugDataCollectorNode", streamDebugDataCollectorNode)
-      .addNode("processSubgraphsNode", processSubgraphsNode)
-      .addNode("generateFinalReportNode", generateFinalReportNode)
+      .addNode("isMetaDataOnly", isMetaDataOnlyNode)
+      .addNode("getMetaData", getMetaDataNode)
+      .addNode("getData", getDataNode)
+      .addNode("analyzeData", analyzeDataNode)
+      .addNode("response", responseNode)
       .addNode("otherIntentNode", otherIntentNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
       .addConditionalEdges("determineIntentNode", debugStreamRouter, {
-        Test: "streamNameNode",
-        Debug: "streamDoctorNode", 
+        Debug: "isMetaDataOnly", 
         Fail: "otherIntentNode"
       })
-      .addEdge("streamNameNode", "streamDebugDataCollectorNode")
-      .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
-      .addEdge("processSubgraphsNode", "generateFinalReportNode")
-      .addEdge("generateFinalReportNode", "__end__")
-      .addEdge("streamDoctorNode", "__end__")
+      .addConditionalEdges("isMetaDataOnly", shouldEnd, {
+        true: "response",
+        false: "getMetaData"
+      })
+      .addConditionalEdges("getMetaData", shouldEnd, {
+        true: "response",
+        false: "getData"
+      })
+      .addConditionalEdges("getData", shouldEnd, {
+        true: "response",
+        false: "analyzeData",
+      })
+      .addEdge("analyzeData", "response")
+      .addEdge("response", "__end__")
       .addEdge("otherIntentNode", "__end__");
 
     const memory = new MemorySaver();

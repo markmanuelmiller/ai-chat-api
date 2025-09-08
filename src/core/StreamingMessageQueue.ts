@@ -1,5 +1,6 @@
 export interface StreamableMessage {
-  type: string; // e.g., 'STATE_UPDATE', 'NODE_START', 'PARTIAL_RESULT', 'LOG', 'ERROR', 'STREAM_END'
+  type: string; // e.g., 'GRAPH_MESSAGE', 'NODE_OUTPUT', 'ERROR'
+  chatId?: string; // Chat ID for the message
   payload: any;
   timestamp: string; // ISO string
   sessionId?: string; // Optional, as the queue itself might be mapped to a session
