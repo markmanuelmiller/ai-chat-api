@@ -96,8 +96,7 @@ export class AIService {
   }
 
   async streamResponse(chatId: string, userId: string, userMessage: string): Promise<void> {
-    const sessionId = chatId;
-    const queue = this.webSocketManager.getOrCreateQueue(sessionId);
+    const queue = this.webSocketManager.getOrCreateQueue(chatId);
 
     let chat = await this.chatRepository.findById(chatId);
     if (!chat) {
@@ -135,7 +134,7 @@ export class AIService {
 
         // Call the modified debugStreamService.streamResponse
         // It now pushes to the queue directly and returns the full response string.
-        fullResponse = await debugStreamService.streamResponse(chatId, userMessage, queue, sessionId);
+        fullResponse = await debugStreamService.streamResponse(chatId, userMessage, queue);
         
         // The loop for (const chunk of stream) is removed from AIService as it's now in DebugStreamService
 
@@ -160,7 +159,7 @@ export class AIService {
           // If fullResponse is empty, it means DebugStreamService didn't produce a final string.
           // This might be normal if the graph only sends other types of messages (e.g. status updates)
           // or an error might have occurred (which DebugStreamService would have pushed to queue).
-          logger.info(`AI processing for session ${sessionId} finished without a final textual response.`);
+          logger.info(`AI processing for chat ${chatId} finished without a final textual response.`);
         }
 
       } catch (error) {
@@ -171,7 +170,6 @@ export class AIService {
           chatId: chatId,
           payload: { node: 'AIService', message: `Sorry, I encountered an error processing your request: ${errorTyped.message}` },
           timestamp: new Date().toISOString(),
-          sessionId: sessionId,
         };
         queue.addMessage(errorMsg);
       } finally {

@@ -12,15 +12,9 @@ import {
   shouldEnd 
 } from './nodes/stream-doctor-nodes';
 
-interface StreamStatusResponse {
-  status: string;
-  error?: string;
-  errorDescription?: string;
-}
-
 // Zod schema for intent validation
 const IntentSchema = z.object({
-  intent: z.enum(['test stream', 'debug stream', 'other']).describe('The detected intent from the user message')
+  intent: z.enum(['debug stream', 'other']).describe('The detected intent from the user message')
 });
 
 const INTENT_PROMPT = `Classify the intent as one of the following: ${IntentSchema.shape.intent._def.values.map(opt => `"${opt}"`).join(', ')}.`;
@@ -85,6 +79,7 @@ export class DebugStreamGraph {
       state.intent = result.intent;
 
       logger.info('INTENT', state.intent);
+      state.streamingMessage = result.intent;
       return state;
     }
 
