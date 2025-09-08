@@ -1,4 +1,4 @@
-import { StateGraph, Annotation } from '@langchain/langgraph';
+import { StateGraph, Annotation, MemorySaver } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { z } from 'zod';
 import axios from 'axios';
@@ -241,6 +241,16 @@ export class DebugStreamGraph {
       };
     }
 
+    // add a node that asks llm for intent type "other" 
+    const otherIntentNode = async (state: typeof StateAnnotation.State) => {
+      const msg = await this.llm.invoke(state.message);
+      state.intent = "other";
+      return {
+        finalReport: msg.content.toString(),
+        streamingMessages: [msg.content.toString()]
+      }
+    }
+
     // Build workflow
     const chain = new StateGraph(StateAnnotation)
       .addNode("intakeMessageNode", intakeMessageNode)
@@ -250,21 +260,26 @@ export class DebugStreamGraph {
       .addNode("streamDebugDataCollectorNode", streamDebugDataCollectorNode)
       .addNode("processSubgraphsNode", processSubgraphsNode)
       .addNode("generateFinalReportNode", generateFinalReportNode)
+      .addNode("otherIntentNode", otherIntentNode)
       .addEdge("__start__", "intakeMessageNode")
       .addEdge("intakeMessageNode", "determineIntentNode")
       .addConditionalEdges("determineIntentNode", debugStreamRouter, {
         Test: "streamNameNode",
         Debug: "streamDoctorNode", 
-        Fail: "__end__"
+        Fail: "otherIntentNode"
       })
       .addEdge("streamNameNode", "streamDebugDataCollectorNode")
       .addEdge("streamDebugDataCollectorNode", "processSubgraphsNode")
       .addEdge("processSubgraphsNode", "generateFinalReportNode")
       .addEdge("generateFinalReportNode", "__end__")
       .addEdge("streamDoctorNode", "__end__")
-      .compile();
+      .addEdge("otherIntentNode", "__end__");
 
-    return chain;
+    const memory = new MemorySaver();
+
+    return chain.compile({
+      checkpointer: memory,
+    });
   }
   
   /**
@@ -274,7 +289,9 @@ export class DebugStreamGraph {
    */
   async invoke(initialState: Partial<typeof StateAnnotation.State>): Promise<typeof StateAnnotation.State> {
     logger.info('initialState from invoke', initialState);
-    const result = await this.graph.invoke(initialState as typeof StateAnnotation.State);
+    const threadId = initialState.chatId;
+    const config = { configurable: { thread_id: threadId } };
+    const result = await this.graph.invoke(initialState as typeof StateAnnotation.State, config);
     logger.info('result from graph from invoke', result);
     return result;
   }
@@ -286,7 +303,9 @@ export class DebugStreamGraph {
    */
   async stream(initialState: Partial<typeof StateAnnotation.State>): Promise<AsyncIterable<typeof StateAnnotation.State>> {
     logger.info('initialState from stream', initialState);
-    const result = await this.graph.stream(initialState as typeof StateAnnotation.State);
+    const threadId = initialState.chatId;
+    const config = { configurable: { thread_id: threadId } };
+    const result = await this.graph.stream(initialState as typeof StateAnnotation.State, config);
     logger.info('result from graph from stream', result);
     return result;
   }

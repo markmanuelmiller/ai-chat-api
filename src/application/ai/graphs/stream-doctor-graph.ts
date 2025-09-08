@@ -1,4 +1,4 @@
-import { StateGraph } from '@langchain/langgraph';
+import { MemorySaver, StateGraph } from '@langchain/langgraph';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { StreamDoctorStateAnnotation } from './types/stream-doctor-state';
 import { 
@@ -64,8 +64,12 @@ export class StreamDoctorGraph {
       .addEdge("analyzeData", "response")
       .addEdge("response", "__end__");
 
+    const memory = new MemorySaver();
+
     // Compile the graph
-    return workflow.compile();
+    return workflow.compile({
+      checkpointer: memory,
+    });
   }
   
   /**
